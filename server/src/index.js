@@ -6,8 +6,8 @@ import { seedDatabase } from './seed.js';
 await openDb();
 // First run: fill the database with the MSMO demo data.
 if ((await getDb().prepare('SELECT COUNT(*) n FROM "user"').get()).n === 0) {
-  console.log('Empty database, loading demo data (takes a few seconds)...');
-  await seedDatabase();
+  console.log('Empty database, loading demo data (about half a minute, first run only)...');
+  await seedDatabase({ onlyIfEmpty: true });
 }
 
 const PORT = Number(process.env.PORT || 4000);

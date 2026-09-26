@@ -1,10 +1,10 @@
 // Admin: departments overview (read-only).
 import { useApi } from '../lib/hooks.js';
-import { Meter, Spinner } from '../components/ui.jsx';
+import { Meter, ErrorNote, Spinner } from '../components/ui.jsx';
 
 export default function Departments() {
-  const { data } = useApi('/admin/departments');
-  if (!data) return <Spinner />;
+  const { data, error, reload } = useApi('/admin/departments');
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
   return (
     <>
       <div className="staff-head"><h1>Departments</h1></div>

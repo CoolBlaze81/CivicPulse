@@ -3,17 +3,17 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
 import { timeAgo, timeLeft } from '../lib/format.js';
-import { Icon, Spinner } from '../components/ui.jsx';
+import { Icon, ErrorNote, Spinner } from '../components/ui.jsx';
 import { ProofCard, VerificationBox } from './IncidentDetail.jsx';
 
 export default function Verification() {
-  const { data, reload } = useApi('/staff/verification', { interval: 30000 });
+  const { data, error, reload } = useApi('/staff/verification', { interval: 30000 });
   const [tab, setTab] = useState('needs');
   const [selectedId, setSelectedId] = useState(null);
   const rows = tab === 'needs' ? data?.needs_officer || [] : data?.in_window || [];
   const selected = rows.find((r) => r.incident_id === selectedId) || rows[0];
   const { data: detail, reload: reloadDetail } = useApi(selected ? `/staff/incidents/${selected.incident_id}` : null);
-  if (!data) return <Spinner />;
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
 
   const after = async () => { setSelectedId(null); await reload(); await reloadDetail(); };
 
@@ -44,7 +44,7 @@ export default function Verification() {
                 {rows.map((r) => (
                   <tr key={r.incident_id} className={`clickable ${selected?.incident_id === r.incident_id ? 'selected' : ''}`} onClick={() => setSelectedId(r.incident_id)}>
                     <td className="mono">{r.code}</td>
-                    <td><div className="title">{r.title}</div><div className="sub">{r.address}{/ward/i.test(r.address || '') ? '' : `, Ward ${r.ward}`}</div></td>
+                    <td><div className="title">{r.title}</div><div className="sub">{[r.address, /ward/i.test(r.address || '') ? null : `Ward ${r.ward}`].filter(Boolean).join(', ')}</div></td>
                     <td><div>{r.crew_name}</div><div className="sub">{r.department_name}</div></td>
                     <td>
                       <div>{r.verification.total} reporter{r.verification.total === 1 ? '' : 's'}</div>

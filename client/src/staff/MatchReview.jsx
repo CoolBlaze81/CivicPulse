@@ -3,17 +3,17 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { useApi, useToast } from '../lib/hooks.js';
 import { meters, timeAgo, when, STATUS_LABEL } from '../lib/format.js';
-import { Icon, Photo, Spinner, Toast } from '../components/ui.jsx';
+import { Icon, Photo, ErrorNote, Spinner, Toast } from '../components/ui.jsx';
 import MapView from '../components/MapView.jsx';
 
 export default function MatchReview() {
-  const { data, reload } = useApi('/staff/match-reviews', { interval: 30000 });
+  const { data, error, reload } = useApi('/staff/match-reviews', { interval: 30000 });
   const [selectedId, setSelectedId] = useState(null);
   const [other, setOther] = useState('');
   const [showOther, setShowOther] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
-  if (!data) return <Spinner />;
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
   const m = data.find((x) => x.review_id === selectedId) || data[0];
 
   const decide = async (decision) => {

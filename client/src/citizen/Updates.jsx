@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useApi } from '../lib/hooks.js';
-import { Icon, Spinner } from '../components/ui.jsx';
+import { Icon, ErrorNote, Spinner } from '../components/ui.jsx';
 
 function stamp(iso) {
   const d = new Date(iso);
@@ -18,8 +18,8 @@ function stamp(iso) {
 export function NotificationList({ linkFor, back = true }) {
   const navigate = useNavigate();
   const { refresh } = useAuth();
-  const { data, reload } = useApi('/notifications', { interval: 20000 });
-  if (!data) return <Spinner />;
+  const { data, error, reload } = useApi('/notifications', { interval: 20000 });
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
   const today = new Date().toDateString();
   const groups = [
     ['Today', data.items.filter((n) => new Date(n.created_at).toDateString() === today)],

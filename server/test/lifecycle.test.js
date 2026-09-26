@@ -219,3 +219,21 @@ test('staff accounts lock after repeated wrong passwords', async () => {
   const right = await call('/auth/staff', { method: 'POST', body: { staff_id: 'OFF-102', password: 'civicpulse' } });
   assert.equal(right.status, 423);
 });
+
+test('sign-in codes are rate limited per number', async () => {
+  const first = await call('/auth/otp', { method: 'POST', body: { phone: '9000000009' } });
+  assert.equal(first.status, 200);
+  const again = await call('/auth/otp', { method: 'POST', body: { phone: '9000000009' } });
+  assert.equal(again.status, 429);
+  assert.match(again.body.error, /Wait \d+ seconds?/);
+  const used = await call('/auth/otp/verify', { method: 'POST', body: { phone: '9000000009', code: first.body.demo_code, name: 'Once' } });
+  assert.equal(used.status, 200);
+  const replay = await call('/auth/otp/verify', { method: 'POST', body: { phone: '9000000009', code: first.body.demo_code } });
+  assert.equal(replay.status, 400); // a code works once
+});
+
+test('responses carry security headers', async () => {
+  const res = await fetch(`${base}/health`);
+  assert.match(res.headers.get('content-security-policy'), /default-src 'self'/);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});

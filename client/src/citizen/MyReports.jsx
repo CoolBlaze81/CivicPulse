@@ -1,17 +1,24 @@
 // All of a citizen's reports (FR-57).
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
-import { Spinner } from '../components/ui.jsx';
+import { ErrorNote, Spinner } from '../components/ui.jsx';
 import { ReportRow } from './Home.jsx';
+import { OutboxBanner } from '../components/Outbox.jsx';
 
 export default function MyReports() {
-  const { data } = useApi('/reports/mine');
-  if (!data) return <Spinner />;
+  const { data, error, reload } = useApi('/reports/mine');
+  const { state } = useLocation();
+  const queued = state?.queued && (
+    <div className="banner ok" role="status"><b>Saved on your phone.</b> We’ll send it as soon as you’re back online.</div>
+  );
+  if (!data) return <>{queued}<OutboxBanner />{error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />}</>;
   const open = data.filter((r) => r.incident_status !== 'CLOSED');
   const closed = data.filter((r) => r.incident_status === 'CLOSED');
   return (
     <>
       <h1>Your reports</h1>
+      {queued}
+      <OutboxBanner />
       {data.length === 0 && (
         <div className="card stack center">
           <p className="muted">You haven’t reported anything yet.</p>

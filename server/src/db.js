@@ -3,7 +3,8 @@
 // WORK_UPDATE, VERIFICATION_REQUEST, NOTIFICATION, DEPARTMENT, CATEGORY,
 // DEPARTMENT_CATEGORY, CREW, EQUIPMENT).
 //
-// With DATABASE_URL set (Neon on Vercel) it connects to that server.
+// With DATABASE_URL (or POSTGRES_URL) set, e.g. Neon on Vercel, it connects
+// to that server.
 // Without it, an embedded Postgres (PGlite) keeps the data in server/data,
 // so nothing has to be installed to run the app locally.
 //
@@ -79,7 +80,8 @@ CREATE TABLE IF NOT EXISTS "user" (
 );
 
 DO $$ BEGIN
-  ALTER TABLE department ADD CONSTRAINT department_head_fk FOREIGN KEY (head_user_id) REFERENCES "user"(user_id);
+  ALTER TABLE department ADD CONSTRAINT department_head_fk FOREIGN KEY (head_user_id) REFERENCES "user"(user_id)
+    DEFERRABLE INITIALLY DEFERRED;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -327,7 +329,7 @@ let opening = null;
 const scope = new AsyncLocalStorage(); // { conn, inTx }
 
 export function defaultTarget() {
-  return process.env.DATABASE_URL || process.env.CIVICPULSE_DB || path.join(DATA_DIR, 'pglite');
+  return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.CIVICPULSE_DB || path.join(DATA_DIR, 'pglite');
 }
 
 export async function openDb(target = defaultTarget()) {

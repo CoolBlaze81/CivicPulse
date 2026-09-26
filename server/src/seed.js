@@ -533,49 +533,57 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
   await db.prepare('UPDATE notification SET is_read = 1 WHERE user_id = ? AND created_at < ?').run(aarav, iso(now - 1.5 * DAY));
 }
 
-// Copies every table from one connection to another (replacing what the
-// target had), then moves the id sequences past the copied rows.
-async function copyAll(from, to) {
-  await to.transaction(async (t) => {
-    await t.exec(`TRUNCATE ${TABLES.map((x) => `"${x}"`).join(', ')} RESTART IDENTITY CASCADE`);
-    for (const table of TABLES) {
-      const { rows } = await from.query(`SELECT * FROM "${table}"`);
-      if (!rows.length) continue;
-      const cols = Object.keys(rows[0]);
-      const perBatch = Math.floor(30000 / cols.length);
-      for (let i = 0; i < rows.length; i += perBatch) {
-        const batch = rows.slice(i, i + perBatch);
-        const params = [];
-        const values = batch.map((row) => `(${cols.map((c) => { params.push(row[c]); return `$${params.length}`; }).join(', ')})`);
-        await t.query(`INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${values.join(', ')}`, params);
-      }
+// Copies every table from one connection into another that is already in
+// a transaction (replacing what it had), then moves the id sequences past
+// the copied rows.
+async function copyInto(from, t) {
+  await t.exec(`TRUNCATE ${TABLES.map((x) => `"${x}"`).join(', ')} RESTART IDENTITY CASCADE`);
+  for (const table of TABLES) {
+    const { rows } = await from.query(`SELECT * FROM "${table}"`);
+    if (!rows.length) continue;
+    const cols = Object.keys(rows[0]);
+    const perBatch = Math.floor(30000 / cols.length);
+    for (let i = 0; i < rows.length; i += perBatch) {
+      const params = [];
+      const values = rows.slice(i, i + perBatch).map((row) => `(${cols.map((c) => { params.push(row[c]); return `$${params.length}`; }).join(', ')})`);
+      await t.query(`INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${values.join(', ')}`, params);
     }
-    const { rows: seqs } = await t.query(
-      `SELECT table_name, column_name FROM information_schema.columns
-       WHERE table_schema = current_schema() AND is_identity = 'YES'`
+  }
+  const { rows: seqs } = await t.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = current_schema() AND is_identity = 'YES'`
+  );
+  for (const { table_name: table, column_name: col } of seqs) {
+    await t.query(
+      `SELECT setval(pg_get_serial_sequence('"${table}"', '${col}'), m) FROM (SELECT MAX("${col}") m FROM "${table}") x WHERE m IS NOT NULL`
     );
-    for (const { table_name: table, column_name: col } of seqs) {
-      await t.query(
-        `SELECT setval(pg_get_serial_sequence('"${table}"', '${col}'), m) FROM (SELECT MAX("${col}") m FROM "${table}") x WHERE m IS NOT NULL`
-      );
-    }
-  });
+  }
 }
 
 // Seeds the open database. A remote Postgres (Neon) is filled by building
 // the data in an in-memory database first and copying it over in bulk,
 // which takes seconds instead of thousands of network round trips.
-export async function seedDatabase(options = {}) {
+// onlyIfEmpty: skip if another server instance already seeded it (the
+// check runs under a lock, so two instances never seed at once).
+export async function seedDatabase({ onlyIfEmpty = false, ...options } = {}) {
   const target = await ready();
-  if (target.kind === 'pglite') return seed(options);
-  const memory = await connect(':memory:');
-  try {
-    const counts = await withConnection(memory, () => seed(options));
-    await copyAll(memory, target);
-    return counts;
-  } finally {
-    await memory.close();
+  const isEmpty = async (c) => (await c.query('SELECT COUNT(*) n FROM "user"')).rows[0].n === 0;
+  if (target.kind === 'pglite') {
+    if (onlyIfEmpty && !(await isEmpty(target))) return null;
+    return seed(options);
   }
+  return target.transaction(async (t) => {
+    await t.query('SELECT pg_advisory_xact_lock(2026092601)');
+    if (onlyIfEmpty && !(await isEmpty(t))) return null;
+    const memory = await connect(':memory:');
+    try {
+      const counts = await withConnection(memory, () => seed(options));
+      await copyInto(memory, t);
+      return counts;
+    } finally {
+      await memory.close();
+    }
+  });
 }
 
 // CLI: node src/seed.js

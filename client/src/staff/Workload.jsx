@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
 import { timeAgo } from '../lib/format.js';
-import { Meter, Priority, Spinner } from '../components/ui.jsx';
+import { Meter, Priority, ErrorNote, Spinner } from '../components/ui.jsx';
 
 function JobCard({ i, sub }) {
   return (
@@ -15,8 +15,8 @@ function JobCard({ i, sub }) {
 }
 
 export default function Workload() {
-  const { data } = useApi('/department/board', { interval: 30000 });
-  if (!data) return <Spinner />;
+  const { data, error, reload } = useApi('/department/board', { interval: 30000 });
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
   const { summary, columns, crews, department } = data;
   const onDuty = crews.filter((c) => c.availability === 'ON_DUTY');
 

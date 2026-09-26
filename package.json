@@ -2,8 +2,12 @@
   "name": "civicpulse",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "CivicPulse - intelligent civic issue management prototype for the fictional MetroServe Municipal Operations Authority",
-  "workspaces": ["server", "client"],
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "seed": "npm run seed -w server",
     "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
@@ -13,5 +17,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

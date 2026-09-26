@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/ui.jsx';
+import { OutboxSender } from '../components/Outbox.jsx';
 
 export function PhoneShell({ children, tabs, bar }) {
   useEffect(() => {
@@ -26,5 +27,10 @@ export default function CitizenLayout({ children, tabs = true }) {
       <NavLink to="/profile">{user?.unread > 0 && <span className="dot" />}<Icon name="user" />Profile</NavLink>
     </nav>
   );
-  return <PhoneShell tabs={tabs} bar={bar}>{children}</PhoneShell>;
+  return (
+    <PhoneShell tabs={tabs} bar={bar}>
+      <OutboxSender />
+      {children}
+    </PhoneShell>
+  );
 }

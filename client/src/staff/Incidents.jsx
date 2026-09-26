@@ -91,11 +91,11 @@ export default function Incidents({ mode = 'officer' }) {
                     <td className="mono">{i.code}</td>
                     <td>
                       <div className="title truncate">{i.title}</div>
-                      <div className="sub">{i.category_name} · {i.address?.split(',')[0]}, W{i.ward}</div>
+                      <div className="sub">{[i.category_name, [i.address?.split(',')[0], `W${i.ward}`].filter(Boolean).join(', ')].join(' · ')}</div>
                     </td>
                     <td><Priority p={i.priority} /></td>
                     <td className="hide-sm"><span className="row" style={{ gap: 4 }}><Icon name="link" size={15} />{i.report_count}</span></td>
-                    <td className="hide-sm">{timeAgo(i.opened_at)}{i.overdue && <span title="Past its response target" style={{ color: 'var(--st-reopened)' }}> ●</span>}</td>
+                    <td className="hide-sm" style={{ whiteSpace: 'nowrap' }}>{timeAgo(i.opened_at)}{i.overdue && <span title="Past its response target" style={{ color: 'var(--st-reopened)' }}> ●</span>}</td>
                     <td>{i.needs_crew ? <span className="pill TRIAGE">Needs a crew</span> : <StatusPill incident={i} />}</td>
                   </tr>
                 ))}

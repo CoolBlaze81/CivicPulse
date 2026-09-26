@@ -1,9 +1,12 @@
-// New report (design p.4, validation p.14, location p.15).
-// Photo is optional (SRS 4.2.2 / FR-11); description, category and location
-// are required (FR-09, FR-10, FR-12).
+// New report (design p.4, validation p.14, location p.15, offline p.16).
+// Photo, description, category and location are required (FR-09, FR-10,
+// FR-12; the photo is required by project decision, design p.14). Without a
+// connection the report is queued on the phone and sent later.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, formOf } from '../api.js';
+import { compressImage } from '../lib/image.js';
+import { outboxAvailable, queueReport } from '../lib/outbox.js';
 import { useAuth } from '../auth.jsx';
 import { getLocation, useApi } from '../lib/hooks.js';
 import { meters, STATUS_LABEL } from '../lib/format.js';
@@ -31,9 +34,16 @@ function LocationPicker({ start, onDone, onCancel }) {
 
 export default function NewReport() {
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  const { user, refresh } = useAuth();
   const { data: meta } = useApi('/meta');
-  const categories = meta?.categories || [];
+  // Categories are remembered so the form still works offline.
+  const categories = useMemo(() => {
+    if (meta?.categories) {
+      try { localStorage.setItem('civicpulse.categories', JSON.stringify(meta.categories)); } catch { /* ignore */ }
+      return meta.categories;
+    }
+    try { return JSON.parse(localStorage.getItem('civicpulse.categories')) || []; } catch { return []; }
+  }, [meta]);
 
   const [photo, setPhoto] = useState(null);
   const photoUrl = useMemo(() => (photo ? URL.createObjectURL(photo) : null), [photo]);
@@ -43,6 +53,8 @@ export default function NewReport() {
   const [loc, setLoc] = useState(null);
   const [locState, setLocState] = useState('locating');
   const [address, setAddress] = useState('');
+  const [addressTyped, setAddressTyped] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [match, setMatch] = useState(null);
   const [dismissed, setDismissed] = useState(null);
@@ -60,6 +72,24 @@ export default function NewReport() {
     });
     return () => { live = false; };
   }, []);
+
+  // Street address from the GPS fix, unless the citizen typed their own.
+  useEffect(() => {
+    if (!loc || addressTyped || !['gps', 'map'].includes(loc.source)) return undefined;
+    let live = true;
+    api(`/geocode/reverse?lat=${loc.lat}&lng=${loc.lng}`)
+      .then((out) => { if (live && out.address) setAddress(out.address); })
+      .catch(() => { /* the citizen can type a landmark */ });
+    return () => { live = false; };
+  }, [loc, addressTyped]);
+
+  const pickPhoto = async (file) => {
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhoto(await compressImage(file));
+    setPhotoBusy(false);
+    setProblems((ps) => ps.filter((p) => p.field !== 'photo'));
+  };
 
   // Suggest categories from what the citizen typed (rule-based classifier).
   useEffect(() => {
@@ -101,21 +131,27 @@ export default function NewReport() {
     setError(null);
     setProblems([]);
     const local = [];
+    if (!photo) local.push({ field: 'photo', message: 'Add a photo of the problem.' });
     if (description.trim().length < 5) local.push({ field: 'description', message: 'Describe the problem in a few words.' });
     if (!categoryId) local.push({ field: 'category', message: 'Choose what kind of problem this is.' });
     if (!loc) local.push({ field: 'location', message: 'Add a location. Pick it on the map if GPS is off.' });
     if (local.length) { setProblems(local); setBusy(false); window.scrollTo(0, 0); return; }
+    const fields = {
+      description, category_id: categoryId, latitude: loc.lat, longitude: loc.lng, address,
+      join_incident_id: joinId, not_incident_id: !joinId && dismissed ? dismissed : undefined,
+    };
     try {
-      const out = await api('/reports', {
-        method: 'POST',
-        form: formOf({
-          description, category_id: categoryId, latitude: loc.lat, longitude: loc.lng, address,
-          join_incident_id: joinId, not_incident_id: !joinId && dismissed ? dismissed : undefined,
-        }, photo),
-      });
+      const out = await api('/reports', { method: 'POST', form: formOf(fields, photo) });
       refresh();
       navigate(`/report/${out.report_id}/received`, { replace: true, state: out });
     } catch (e) {
+      if (e.code === 'OFFLINE' && outboxAvailable()) {
+        try {
+          await queueReport(user.user_id, JSON.parse(JSON.stringify(fields)), photo);
+          navigate('/reports', { replace: true, state: { queued: true } });
+          return;
+        } catch { /* fall through and show the offline error */ }
+      }
       if (e.problems) setProblems(e.problems);
       setError(e.message);
       window.scrollTo(0, 0);
@@ -155,16 +191,17 @@ export default function NewReport() {
       )}
 
       <div className="row" style={{ alignItems: 'stretch' }}>
-        <Photo src={photoUrl} className="grow" style={{ height: 150 }}>
-          <span className="tag"><Icon name="image" size={16} />{photo ? 'Your photo' : 'Photo (optional)'}</span>
+        <Photo src={photoUrl} className="grow" style={{ height: 150, ...(problem('photo') ? { outline: '2px solid var(--st-reopened)' } : {}) }}>
+          <span className="tag"><Icon name="image" size={16} />{photoBusy ? 'Preparing…' : photo ? 'Your photo' : 'Photo (required)'}</span>
         </Photo>
-        <button type="button" className="card" style={{ width: 110, borderStyle: 'dashed', cursor: 'pointer', display: 'grid', placeItems: 'center' }}
+        <button type="button" className={`card ${problem('photo') ? 'danger' : ''}`} style={{ width: 110, borderStyle: 'dashed', cursor: 'pointer', display: 'grid', placeItems: 'center' }}
           onClick={() => fileRef.current?.click()}>
           <span className="stack tight center"><Icon name="camera" size={26} /><b>{photo ? 'Change' : 'Add'}</b></span>
         </button>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden
-          onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+          onChange={(e) => pickPhoto(e.target.files?.[0])} />
       </div>
+      {problem('photo') && <p className="error-text" style={{ marginTop: -8 }}>{problem('photo').message}</p>}
 
       <label className="field">
         What’s wrong?
@@ -197,7 +234,8 @@ export default function NewReport() {
             <MapView center={loc} zoom={16} dot={loc} interactive={false} />
           </div>
           <div className="grow stack tight" style={{ gap: 2 }}>
-            <input className="input" style={{ minHeight: 36, padding: '6px 10px' }} value={address} onChange={(e) => setAddress(e.target.value)}
+            <input className="input" style={{ minHeight: 36, padding: '6px 10px' }} value={address}
+              onChange={(e) => { setAddress(e.target.value); setAddressTyped(true); }}
               placeholder="Landmark or address (optional)" aria-label="Landmark or address" />
             <span className="mono tiny muted">{locLine}</span>
           </div>
@@ -216,13 +254,13 @@ export default function NewReport() {
             </div>
           </div>
           <div className="row">
-            <button type="button" className="btn violet grow" disabled={busy} onClick={() => submit(match.incident_id)}>Add my report to it</button>
+            <button type="button" className="btn violet grow" disabled={busy || photoBusy} onClick={() => submit(match.incident_id)}>Add my report to it</button>
             <button type="button" className="btn ghost" style={{ borderColor: '#cfc3f5', color: 'var(--violet)' }} onClick={() => setDismissed(match.incident_id)}>Different issue</button>
           </div>
         </div>
       )}
 
-      <button type="button" className="btn primary lg block" disabled={busy} onClick={() => submit(null)} style={{ marginTop: 'auto' }}>
+      <button type="button" className="btn primary lg block" disabled={busy || photoBusy} onClick={() => submit(null)} style={{ marginTop: 'auto' }}>
         {busy ? 'Sending…' : showMatch ? 'Submit as new report' : 'Send report'}
       </button>
     </>

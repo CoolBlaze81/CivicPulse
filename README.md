@@ -6,25 +6,45 @@ Every report finds its incident. Every incident is tracked until a citizen says 
 Built from the project documents: Problem Statement, SRS v1.1 (FR-01 to FR-63, BR-01 to BR-12),
 DFD Levels 0 to 2, Use Case, Sequence, ER and Class diagrams, and the "Design Foundations v0.1" mockups.
 
-## Run it
+## Run it on your computer
 
-Requires **Node.js 20 or newer** (22 or 24 recommended). If `npm install` fails on better-sqlite3, delete `node_modules` and `package-lock.json` and run it again.
+Requires **Node.js 20 or newer** (22 or 24 recommended). Nothing else: the database is an embedded Postgres (PGlite) that lives in `server/data`.
 
 ```bash
 npm install          # installs server and client (npm workspaces)
-npm run seed         # builds the demo database (about 100 days of history)
 npm run dev          # API on :4000, web app on http://localhost:5173
 ```
 
-On first start the server seeds itself if the database is empty, so `npm run seed` is only needed to reset the data.
+The first start loads the demo data (about 100 days of history), which takes around half a minute. `npm run seed` rebuilds it from scratch at any time.
 
-Single-port "production" mode: `npm run build && npm start`, then open http://localhost:4000.
+Single-port "production" mode: `npm run build && npm start`, then open http://localhost:4000. This mode also turns on the offline support (service worker).
+
+Tests (matching, verification rules, roles, login limits, photo rule, offline timestamps): `npm test`
 
 ### On your phone
 
-Keep the phone on the same Wi-Fi as the computer running `npm run dev`. The terminal prints a `Network:` address such as `http://192.168.1.20:5173`; open it in the phone's browser, then use *Add to Home screen* to get a full-screen CivicPulse icon. If it doesn't load, allow Node through the computer's firewall. Phones only share GPS with HTTPS sites, so over plain Wi-Fi the app uses the demo location.
+Keep the phone on the same Wi-Fi as the computer running `npm run dev`. The terminal prints a `Network:` address such as `http://192.168.1.20:5173`; open it in the phone's browser, then use *Add to Home screen* to get a full-screen CivicPulse icon. If it doesn't load, allow Node through the computer's firewall. Phones only share GPS with HTTPS sites, so over plain Wi-Fi the app uses the demo location. The hosted version below has HTTPS, real GPS and installs like an app.
 
-Tests (matching, verification rules, roles, login lockout): `npm test`
+## Put it online (Vercel + Neon)
+
+The repository is ready for Vercel: `vercel.json` builds the React app as static files and runs the API as one serverless function (`api/index.js`). Data lives in Neon Postgres and photos in Vercel Blob.
+
+1. On vercel.com, **Add New > Project** and import this GitHub repository. Keep the defaults and don't deploy yet if it asks for settings.
+2. In the project, open **Storage** and add **Neon** (Postgres). Connect it to the project; this sets `DATABASE_URL`.
+3. Still in **Storage**, create a **Blob** store and connect it; this sets `BLOB_READ_WRITE_TOKEN`.
+4. In **Settings > Environment Variables**, add `JWT_SECRET` with a long random value (for example the output of `openssl rand -hex 32`).
+5. **Deployments > Redeploy.** The first request after deploying loads the demo data into Neon, so the first page load takes about half a minute.
+
+| Variable | Needed | What it does |
+|---|---|---|
+| `DATABASE_URL` | on Vercel | Postgres connection string (Neon sets it). Without it the embedded database in `server/data` is used. |
+| `BLOB_READ_WRITE_TOKEN` | on Vercel | Photo storage. Without it photos are saved in `server/uploads`. |
+| `JWT_SECRET` | on Vercel | Signs sign-in sessions. Required whenever `NODE_ENV=production`. |
+| `VERIFICATION_WINDOW_HOURS` | no | Citizen verification window, default 72. |
+| `DEMO_MODE` | no | Set to `0` to hide the "End window now" demo button. |
+| `GEOCODE` | no | Set to `0` to turn off address lookup from GPS. |
+
+To reset the hosted demo data, run `npm run seed` on your computer with `DATABASE_URL` set to the Neon connection string. It builds the data locally and copies it over in a few seconds.
 
 ## Demo accounts
 
@@ -42,7 +62,7 @@ Any other 10-digit mobile number creates a new citizen account.
 ### A 5-minute demo script
 
 1. **Citizen**: sign in as Aarav. "Needs your check" shows the Lakeview Lane streetlight. Open it, compare before and after, then confirm or reject.
-2. **Citizen**: tap *Report an issue* and type "big pothole on ring road". The category is suggested and *This looks already reported* offers to join INC for Deep pothole, Ring Road.
+2. **Citizen**: tap *Report an issue*, add any photo and type "big pothole on ring road". The category is suggested and *This looks already reported* offers to join INC for Deep pothole, Ring Road.
 3. **Officer** `OFF-101`: *Incidents* shows the triage queue with CivicPulse's recommended category, priority, department and crew, plus the reasons. Open *Road cave-in near school gate*, then *Assign to Crew R-2 & notify*.
 4. **Officer**: *Match review* lists reports scoring 60 to 90%, with distance, category, text and time signals. Link one or create a new incident.
 5. **Field worker** `CREW-R-2` (use a phone-sized window): the new job appears. Update progress, add a note and optional photo, then *Mark resolved*. Every reporter gets a 72-hour verification request.
@@ -54,7 +74,8 @@ Any other 10-digit mobile number creates a new citizen account.
 
 ```
 client/   React 18 + Vite, React Router, Leaflet (OpenStreetMap tiles)
-server/   Node + Express, SQLite (better-sqlite3), JWT sessions, bcrypt, multer for photos
+server/   Node + Express, Postgres (PGlite locally, Neon hosted), JWT sessions, bcrypt, helmet
+api/      Vercel serverless entry for the same Express app
   src/services/   one module per SRS feature (NFR-16)
     reports.js        1.0 Submit & manage reports (validation, IDs)
     matching.js       2.0 Identify & consolidate incidents (MatchingEngine)
@@ -65,6 +86,8 @@ server/   Node + Express, SQLite (better-sqlite3), JWT sessions, bcrypt, multer 
     notifications.js  7.0 In-app notifications
     analytics.js      8.0 Operational analytics
   src/seed.js     demo data built through the same services
+  src/services/storage.js  photos: Vercel Blob when hosted, server/uploads locally
+  src/services/geocode.js  GPS point to street address (OpenStreetMap Nominatim)
   test/           node:test suite
 ```
 
@@ -85,15 +108,25 @@ When a crew marks an incident resolved, every citizen with a linked report is as
 
 | Topic | Documents | What the app does |
 |---|---|---|
-| Photo on a report | SRS 4.2.2: optional. Design p.14: required | Optional (SRS wins), with a prompt to add one |
+| Photo on a report | SRS 4.2.2: optional. Design p.14: required | Required (project decision, following the design). Photos are shrunk on the phone before upload |
 | Citizen login | Design: SMS code. SRS 2.5: SMS out of scope | Phone + 6-digit code shown on screen ("demo mode") |
 | Report waiting for match review | Not specified | Report stays unlinked ("Being checked") until an officer decides |
 | Citizen taps "Add my report to it" | ER link_method has AUTO / OFFICER / NEW | Added a `CITIZEN` link method so analytics can tell them apart |
 | Wards | Not in ER | `incident.ward` from a 12-ward grid over the demo city |
 | Who assigns crews | SRS: officer. Design p.31: department board shows "needs a crew" | Officers assign anywhere; department heads can assign crews in their own department |
 | Staff login lockout | Design p.28 | 5 wrong passwords lock the account for 15 minutes; admins can unlock |
-| Offline queue | Design p.16 only | Not built; a clear offline error keeps the form filled |
+| Offline queue | Design p.16 only | Built: a report written offline is saved on the phone with its photo and sent when the connection returns, keeping the time it was written |
+| Address | Citizens type a landmark | Filled in from the GPS point (OpenStreetMap), and the citizen can edit it |
 
 ## Not in this prototype
 
-Real SMS or email, image similarity, reverse geocoding (citizens type a landmark), offline sending, and deployment/HTTPS set-up (TBD-04). Map tiles and fonts load from the internet.
+Real SMS or email and image similarity. Map tiles and fonts load from the internet.
+
+## Security
+
+- Staff passwords are bcrypt hashed; 5 wrong passwords lock an account for 15 minutes.
+- Sign-in codes: 3 tries per code, one code every 30 seconds and five an hour per number, each code works once.
+- Rate limits per device on sign-in endpoints and on the API as a whole.
+- Security headers (Content-Security-Policy, HSTS on Vercel, nosniff, no framing) via helmet and `vercel.json`.
+- A production server refuses to start without `JWT_SECRET`.
+- Role checks on every staff endpoint (FR-04, FR-07); department heads only act inside their department.

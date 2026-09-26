@@ -4,6 +4,7 @@ import { useAuth } from '../auth.jsx';
 import { useApi } from '../lib/hooks.js';
 import { durationDays, ago } from '../lib/format.js';
 import { Brand, Icon, Photo, Spinner, StatusPill, ErrorNote } from '../components/ui.jsx';
+import { OutboxBanner } from '../components/Outbox.jsx';
 
 function greeting() {
   const h = new Date().getHours();
@@ -70,6 +71,7 @@ export default function CitizenHome() {
         <span style={{ opacity: 0.8 }}>Photo + location. Takes under a minute.</span>
       </div>
 
+      <OutboxBanner />
       <ErrorNote error={error} onRetry={reload} />
 
       {needsCheck.map((r) => (

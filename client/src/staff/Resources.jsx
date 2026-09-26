@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useApi, useToast } from '../lib/hooks.js';
-import { Icon, Spinner, Toast } from '../components/ui.jsx';
+import { Icon, ErrorNote, Spinner, Toast } from '../components/ui.jsx';
 
 const AVAIL = { ON_DUTY: 'On duty', OFF_SHIFT: 'Off shift', ON_LEAVE: 'On leave' };
 
@@ -34,10 +34,10 @@ function CrewRow({ c, onSave }) {
 }
 
 export default function Resources() {
-  const { data, reload } = useApi('/department/resources');
+  const { data, error, reload } = useApi('/department/resources');
   const [toast, showToast] = useToast();
   const [newCrew, setNewCrew] = useState(null);
-  if (!data) return <Spinner />;
+  if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
 
   const saveCrew = async (id, f) => {
     try {

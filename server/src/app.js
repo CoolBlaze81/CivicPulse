@@ -4,11 +4,14 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
+import helmet from 'helmet';
 import { UPLOAD_DIR } from './db.js';
 import authRoutes from './routes/auth.js';
 import citizenRoutes from './routes/citizen.js';
 import staffRoutes from './routes/staff.js';
 import operationsRoutes from './routes/operations.js';
+import { MAX_PHOTO_MB } from './routes/util.js';
+import { rateLimit } from './rateLimit.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.join(here, '..', '..', 'client', 'dist');
@@ -16,7 +19,35 @@ const CLIENT_DIST = path.join(here, '..', '..', 'client', 'dist');
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
+  // Behind Vercel's (or another) proxy, req.ip comes from X-Forwarded-For.
+  if (process.env.VERCEL || process.env.TRUST_PROXY) app.set('trust proxy', 1);
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://*.tile.openstreetmap.org', 'https://*.public.blob.vercel-storage.com'],
+        connectSrc: ["'self'"],
+        workerSrc: ["'self'"],
+        manifestSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-site' },
+  }));
   app.use(express.json({ limit: '1mb' }));
+
+  // Sign-in endpoints get tight limits; everything else a generous one.
+  const MIN = 60000;
+  app.use('/api/auth/otp', rateLimit({ windowMs: 15 * MIN, max: 10, message: 'Too many code requests from this device. Try again in a few minutes.' }));
+  app.use('/api/auth/otp/verify', rateLimit({ windowMs: 15 * MIN, max: 20, message: 'Too many attempts. Try again in a few minutes.' }));
+  app.use('/api/auth/staff', rateLimit({ windowMs: 15 * MIN, max: 20, message: 'Too many sign-in attempts from this device. Try again in a few minutes.' }));
+  app.use('/api', rateLimit({ windowMs: MIN, max: 600 }));
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
   app.use('/api', authRoutes, citizenRoutes, staffRoutes, operationsRoutes);
@@ -35,7 +66,7 @@ export function createApp() {
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (err instanceof multer.MulterError) {
-      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'That photo is too big. Photos can be up to 8 MB.' : 'That upload did not work.';
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? `That photo is too big. Photos can be up to ${MAX_PHOTO_MB} MB.` : 'That upload did not work.';
       return res.status(422).json({ error: msg });
     }
     if (err.status && err.status < 500) {
