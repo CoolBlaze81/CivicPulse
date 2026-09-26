@@ -20,6 +20,10 @@ On first start the server seeds itself if the database is empty, so `npm run see
 
 Single-port "production" mode: `npm run build && npm start`, then open http://localhost:4000.
 
+### On your phone
+
+Keep the phone on the same Wi-Fi as the computer running `npm run dev`. The terminal prints a `Network:` address such as `http://192.168.1.20:5173`; open it in the phone's browser, then use *Add to Home screen* to get a full-screen CivicPulse icon. If it doesn't load, allow Node through the computer's firewall. Phones only share GPS with HTTPS sites, so over plain Wi-Fi the app uses the demo location.
+
 Tests (matching, verification rules, roles, login lockout): `npm test`
 
 ## Demo accounts
