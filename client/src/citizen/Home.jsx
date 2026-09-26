@@ -45,7 +45,7 @@ export function ReportRow({ r }) {
 
 export default function CitizenHome() {
   const { user } = useAuth();
-  const { data, error, loading, reload } = useApi('/reports/mine', { interval: 30000 });
+  const { data, error, loading, reload } = useApi('/reports/mine', { interval: 30000, offline: true });
   const reports = data || [];
   const needsCheck = [];
   const seen = new Set();
@@ -56,7 +56,7 @@ export default function CitizenHome() {
 
   return (
     <>
-      <div className="row between">
+      <div className="row between desk-hide">
         <Brand />
         <Link to="/updates" className="icon-btn" aria-label="Updates" style={{ position: 'relative' }}>
           <Icon name="bell" />
@@ -65,6 +65,8 @@ export default function CitizenHome() {
       </div>
       <h2>{reports.length ? greeting() : 'Welcome'}, {firstName}</h2>
 
+      <div className="desk-cols">
+      <div>
       <div className="hero-card">
         <h2>Spotted something<br />broken?</h2>
         <Link to="/report/new" className="btn lg block"><Icon name="camera" /> Report an issue</Link>
@@ -72,7 +74,7 @@ export default function CitizenHome() {
       </div>
 
       <OutboxBanner />
-      <ErrorNote error={error} onRetry={reload} />
+      <ErrorNote error={error} onRetry={reload} hasData={!!data} />
 
       {needsCheck.map((r) => (
         <div key={r.incident_id} className="card warn stack">
@@ -81,7 +83,9 @@ export default function CitizenHome() {
           <Link to={`/incident/${r.incident_id}/verify`} className="btn primary">Review proof</Link>
         </div>
       ))}
+      </div>
 
+      <div>
       {loading && !data ? <Spinner /> : reports.length === 0 ? (
         <div className="card stack center" style={{ padding: 28 }}>
           <h3>No reports yet</h3>
@@ -96,6 +100,8 @@ export default function CitizenHome() {
           </div>
         </section>
       )}
+      </div>
+      </div>
     </>
   );
 }

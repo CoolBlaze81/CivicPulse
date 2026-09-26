@@ -61,12 +61,16 @@ export default function Nearby() {
 
   return (
     <>
-      <div style={{ height: 340, margin: '-20px -20px 0', position: 'relative' }}>
+      <div className="desk-cols map-left">
+      <div className="stick">
+      <div className="nearby-map">
         <MapView center={here} zoom={15} dot={here} radius={1000}
           markers={list.map((i) => ({ id: i.incident_id, lat: i.latitude, lng: i.longitude, label: i.report_count, variant: variant(i), onClick: () => setSelected(i.incident_id) }))} />
       </div>
+      </div>
+      <div>
       {here.source === 'demo' && <div className="banner demo small">Showing the demo neighbourhood (Sector 14, MetroServe) because your device is {here.reason === 'outside' ? 'outside the demo city' : 'not sharing its location'}.</div>}
-      <div className="row" style={{ gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+      <div className="row chip-scroll" style={{ gap: 8, paddingBottom: 4 }}>
         {Object.keys(FILTERS).map((f) => (
           <button type="button" key={f} className={`chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{f}</button>
         ))}
@@ -95,6 +99,8 @@ export default function Nearby() {
           ))}
         </div>
       )}
+      </div>
+      </div>
       <Toast msg={toast} />
     </>
   );

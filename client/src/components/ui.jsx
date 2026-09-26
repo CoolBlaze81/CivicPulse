@@ -92,8 +92,16 @@ export function EmptyState({ title, children, action }) {
   );
 }
 
-export function ErrorNote({ error, onRetry }) {
+export function ErrorNote({ error, onRetry, hasData }) {
   if (!error) return null;
+  if (error.code === 'OFFLINE') {
+    return (
+      <div className="banner info row between" role="status">
+        <span>You’re offline. {hasData ? 'Showing what was saved on this device last time.' : 'This will load when you’re back online.'}</span>
+        {onRetry && <button type="button" className="link-btn" onClick={onRetry}>Retry</button>}
+      </div>
+    );
+  }
   return (
     <div className="banner error row between">
       <span>{error.message}{error.reference ? ` (reference ${error.reference})` : ''}</span>

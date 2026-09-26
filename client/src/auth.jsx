@@ -4,7 +4,13 @@ import { api, getToken, setAuthLostHandler, setToken } from './api.js';
 
 const AuthContext = createContext(null);
 const ME_KEY = 'civicpulse.me';
-const forgetMe = () => { try { localStorage.removeItem(ME_KEY); } catch { /* ignore */ } };
+const forgetMe = () => {
+  try {
+    localStorage.removeItem(ME_KEY);
+    // Lists remembered for offline use belong to the signed-in person.
+    Object.keys(localStorage).filter((k) => k.startsWith('civicpulse.cache.')).forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+};
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);

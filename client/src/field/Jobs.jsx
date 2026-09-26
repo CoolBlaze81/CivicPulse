@@ -26,7 +26,7 @@ export default function Jobs() {
         </div>
         <span className="pill CLOSED">On duty</span>
       </div>
-      <ErrorNote error={error} onRetry={reload} />
+      <ErrorNote error={error} onRetry={reload} hasData={!!data} />
       {!data ? <Spinner /> : (
         <>
           <div className="stat-row">

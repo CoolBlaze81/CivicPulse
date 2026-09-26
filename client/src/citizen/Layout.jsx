@@ -1,30 +1,37 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
-import { Icon } from '../components/ui.jsx';
+import { Brand, Icon } from '../components/ui.jsx';
 import { OutboxSender } from '../components/Outbox.jsx';
 
-export function PhoneShell({ children, tabs, bar }) {
+export function PhoneShell({ children, tabs, bar, wide }) {
   useEffect(() => {
     document.body.classList.add('phone-body');
     return () => document.body.classList.remove('phone-body');
   }, []);
   return (
     <div className="phone">
-      <main className={`phone-main ${tabs ? '' : 'no-tabs'}`}>{children}</main>
       {tabs && bar}
+      <main className={`phone-main ${tabs ? '' : 'no-tabs'} ${wide ? 'wide' : ''}`}>{children}</main>
     </div>
   );
 }
 
+// On phones the nav is a bottom tab bar; on computers the same element is a
+// top header with the brand, an Updates link and a "Report an issue" button.
 export default function CitizenLayout({ children, tabs = true }) {
   const { user } = useAuth();
   const bar = (
     <nav className="tabbar" aria-label="Main">
-      <NavLink to="/" end><Icon name="home" />Home</NavLink>
-      <NavLink to="/nearby"><Icon name="map" />Nearby</NavLink>
-      <NavLink to="/reports"><Icon name="list" />Reports</NavLink>
-      <NavLink to="/profile">{user?.unread > 0 && <span className="dot" />}<Icon name="user" />Profile</NavLink>
+      <div className="tabbar-inner">
+        <span className="desk-only brand-slot"><Brand /></span>
+        <NavLink to="/" end><Icon name="home" />Home</NavLink>
+        <NavLink to="/nearby"><Icon name="map" />Nearby</NavLink>
+        <NavLink to="/reports"><Icon name="list" />Reports</NavLink>
+        <NavLink to="/updates" className="desk-only">{user?.unread > 0 && <span className="dot" />}<Icon name="bell" />Updates</NavLink>
+        <NavLink to="/profile">{user?.unread > 0 && <span className="dot mob-only" />}<Icon name="user" />Profile</NavLink>
+        <NavLink to="/report/new" className="desk-only cta"><Icon name="camera" />Report an issue</NavLink>
+      </div>
     </nav>
   );
   return (

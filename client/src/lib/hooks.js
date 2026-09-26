@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 
+const cacheGet = (key) => { try { return JSON.parse(localStorage.getItem(`civicpulse.cache.${key}`)); } catch { return null; } };
+const cachePut = (key, d) => { try { localStorage.setItem(`civicpulse.cache.${key}`, JSON.stringify(d)); } catch { /* ignore */ } };
+
 // Loads an API path; reload() re-fetches. Stale responses are ignored.
-export function useApi(path, { interval } = {}) {
-  const [data, setData] = useState(null);
+// With `offline: true` the last good response is kept on the device and shown
+// when there is no connection.
+export function useApi(path, { interval, offline } = {}) {
+  const [data, setData] = useState(() => (offline && path ? cacheGet(path) : null));
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const seq = useRef(0);
@@ -16,13 +21,14 @@ export function useApi(path, { interval } = {}) {
       if (mine === seq.current) {
         setData(d);
         setError(null);
+        if (offline) cachePut(path, d);
       }
     } catch (e) {
       if (mine === seq.current) setError(e);
     } finally {
       if (mine === seq.current) setLoading(false);
     }
-  }, [path]);
+  }, [path, offline]);
 
   useEffect(() => {
     setLoading(true);

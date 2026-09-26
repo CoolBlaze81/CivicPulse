@@ -16,16 +16,16 @@ import MapView from '../components/MapView.jsx';
 function LocationPicker({ start, onDone, onCancel }) {
   const [p, setP] = useState(start);
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', display: 'flex', flexDirection: 'column', maxWidth: 460, margin: '0 auto' }}>
-      <div className="row" style={{ padding: 16 }}>
+    <div className="picker">
+      <div className="row picker-top">
         <button type="button" className="icon-btn" onClick={onCancel} aria-label="Back"><Icon name="back" /></button>
         <h3>Pick the spot on the map</h3>
       </div>
       <div style={{ flex: 1 }}>
         <MapView center={start} zoom={17} dot={p} onPick={setP} />
       </div>
-      <div className="stack" style={{ padding: 16 }}>
-        <p className="muted small">Tap the map where the problem is. <span className="mono">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</span></p>
+      <div className="stack picker-bottom">
+        <p className="muted small">Tap or click the map where the problem is. <span className="mono">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</span></p>
         <button type="button" className="btn primary lg block" onClick={() => onDone(p)}>Use this spot</button>
       </div>
     </div>
@@ -190,6 +190,8 @@ export default function NewReport() {
         </div>
       )}
 
+      <div className="desk-cols">
+      <div>
       <div className="row" style={{ alignItems: 'stretch' }}>
         <Photo src={photoUrl} className="grow" style={{ height: 150, ...(problem('photo') ? { outline: '2px solid var(--st-reopened)' } : {}) }}>
           <span className="tag"><Icon name="image" size={16} />{photoBusy ? 'Preparing…' : photo ? 'Your photo' : 'Photo (required)'}</span>
@@ -227,10 +229,13 @@ export default function NewReport() {
         </div>
         {problem('category') && <p className="error-text">{problem('category').message}</p>}
       </div>
+      </div>
 
-      <div className={`card ${problem('location') ? 'danger' : ''}`} style={{ padding: 12 }}>
+      <div className="stick">
+
+      <div className={`card loc-card ${problem('location') ? 'danger' : ''}`} style={{ padding: 12 }}>
         <div className="row">
-          <div style={{ width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flex: 'none' }}>
+          <div className="loc-thumb">
             <MapView center={loc} zoom={16} dot={loc} interactive={false} />
           </div>
           <div className="grow stack tight" style={{ gap: 2 }}>
@@ -263,6 +268,8 @@ export default function NewReport() {
       <button type="button" className="btn primary lg block" disabled={busy || photoBusy} onClick={() => submit(null)} style={{ marginTop: 'auto' }}>
         {busy ? 'Sending…' : showMatch ? 'Submit as new report' : 'Send report'}
       </button>
+      </div>
+      </div>
     </>
   );
 }

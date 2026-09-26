@@ -8,6 +8,28 @@ import { ROLE_HOME } from '../lib/format.js';
 import { Brand } from '../components/ui.jsx';
 import { PhoneShell } from './Layout.jsx';
 
+const STEPS = ['Snap a photo, drop a pin', 'We join you with neighbours who saw it too', 'You confirm the fix before it’s closed'];
+
+// Phones: one column. Computers: navy intro panel beside the form.
+function LoginFrame({ children, intro }) {
+  return (
+    <PhoneShell wide>
+      <div className="cit-login">
+        <section className={`cit-login-hero ${intro ? '' : 'desk-only-hero'}`}>
+          <Brand />
+          <h1>Report it once.<br />Watch it get fixed.</h1>
+          <ol className="stack">
+            {STEPS.map((t, i) => (
+              <li key={t} className="row"><span className="avatar">{i + 1}</span><span className="bold">{t}</span></li>
+            ))}
+          </ol>
+        </section>
+        <section className="cit-login-form">{children}</section>
+      </div>
+    </PhoneShell>
+  );
+}
+
 function OtpBoxes({ value, onChange, bad }) {
   const refs = useRef([]);
   const digits = value.padEnd(6, ' ').slice(0, 6).split('');
@@ -96,8 +118,8 @@ export default function CitizenLogin() {
 
   if (step === 'code') {
     return (
-      <PhoneShell>
-        <form className="stack loose" onSubmit={verify} style={{ paddingTop: 20 }}>
+      <LoginFrame>
+        <form className="stack loose" onSubmit={verify}>
           <h1>Enter the code</h1>
           <p className="muted">
             Sent to +91 {phone.replace(/\D/g, '').slice(-10).replace(/(\d{5})(\d{5})/, '$1 $2')} ·{' '}
@@ -122,20 +144,14 @@ export default function CitizenLogin() {
           </p>
           <button className="btn primary lg block" disabled={busy || code.length !== 6 || (isNew && !name.trim())}>Verify</button>
         </form>
-      </PhoneShell>
+      </LoginFrame>
     );
   }
 
   return (
-    <PhoneShell>
-      <div className="stack loose" style={{ paddingTop: 12 }}>
-        <Brand />
-        <h1 style={{ fontSize: 38 }}>Report it once.<br />Watch it get fixed.</h1>
-        <ol className="stack" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {['Snap a photo, drop a pin', 'We join you with neighbours who saw it too', 'You confirm the fix before it’s closed'].map((t, i) => (
-            <li key={t} className="row"><span className="avatar" style={{ background: 'var(--navy)' }}>{i + 1}</span><span className="bold">{t}</span></li>
-          ))}
-        </ol>
+    <LoginFrame intro>
+      <div className="stack loose">
+        <h2 className="desk-show">Sign in with your mobile</h2>
         <form className="stack" onSubmit={send}>
           <label className="field">
             Mobile number
@@ -152,6 +168,6 @@ export default function CitizenLogin() {
           Demo citizen: 98765 43210 · <Link to="/staff/login">Municipal staff? Sign in with staff ID</Link>
         </p>
       </div>
-    </PhoneShell>
+    </LoginFrame>
   );
 }

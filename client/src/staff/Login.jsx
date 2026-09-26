@@ -69,7 +69,7 @@ export default function StaffLogin() {
             <input className={`input ${error ? 'bad' : ''}`} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
           </label>
           <button className="btn primary lg block" disabled={busy || !staffId || !password}>Sign in</button>
-          <p className="small muted">Demo password for every staff account: <span className="mono">civicpulse</span>. Tap a demo ID on the left to fill it in. <Link to="/login">Citizen sign-in</Link></p>
+          <p className="small muted">Demo password for every staff account: <span className="mono">civicpulse</span>. Tap a demo ID to fill it in. <Link to="/login">Citizen sign-in</Link></p>
         </form>
       </div>
     </div>

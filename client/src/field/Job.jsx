@@ -89,7 +89,7 @@ export default function Job() {
           <>
             <h3>Resolution proof</h3>
             <div className="row" style={{ alignItems: 'stretch' }}>
-              <Photo src={photoUrl} className="grow" style={{ height: 140 }}>{!photo && <span className="small">Location is recorded with the photo</span>}</Photo>
+              <Photo src={photoUrl} className="grow" style={{ height: 140 }}>{!photo && <span className="small muted" style={{ padding: 12, textAlign: 'center' }}>Location is recorded with the photo</span>}</Photo>
               <button type="button" className="card" style={{ width: 120, borderStyle: 'dashed', cursor: 'pointer' }} onClick={() => fileRef.current?.click()}>
                 <span className="stack tight center"><Icon name="camera" size={26} /><b className="small">Take “after” photo</b></span>
               </button>

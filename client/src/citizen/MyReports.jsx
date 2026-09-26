@@ -3,15 +3,17 @@ import { Link, useLocation } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
 import { ErrorNote, Spinner } from '../components/ui.jsx';
 import { ReportRow } from './Home.jsx';
-import { OutboxBanner } from '../components/Outbox.jsx';
+import { OutboxBanner, useOutbox } from '../components/Outbox.jsx';
 
 export default function MyReports() {
-  const { data, error, reload } = useApi('/reports/mine');
+  const { data, error, reload } = useApi('/reports/mine', { offline: true });
   const { state } = useLocation();
-  const queued = state?.queued && (
+  const { items } = useOutbox();
+  // Only while the report is still waiting; once it's sent the list shows it.
+  const queued = state?.queued && items.length > 0 && (
     <div className="banner ok" role="status"><b>Saved on your phone.</b> We’ll send it as soon as you’re back online.</div>
   );
-  if (!data) return <>{queued}<OutboxBanner />{error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />}</>;
+  if (!data) return <><h1>Your reports</h1>{queued}<OutboxBanner />{error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />}</>;
   const open = data.filter((r) => r.incident_status !== 'CLOSED');
   const closed = data.filter((r) => r.incident_status === 'CLOSED');
   return (
@@ -19,6 +21,7 @@ export default function MyReports() {
       <h1>Your reports</h1>
       {queued}
       <OutboxBanner />
+      <ErrorNote error={error} onRetry={reload} hasData />
       {data.length === 0 && (
         <div className="card stack center">
           <p className="muted">You haven’t reported anything yet.</p>
