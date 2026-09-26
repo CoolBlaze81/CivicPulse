@@ -8,7 +8,7 @@ DFD Levels 0 to 2, Use Case, Sequence, ER and Class diagrams, and the "Design Fo
 
 ## Run it
 
-Requires **Node.js 20 or newer** (22 recommended).
+Requires **Node.js 20 or newer** (22 or 24 recommended). If `npm install` fails on better-sqlite3, delete `node_modules` and `package-lock.json` and run it again.
 
 ```bash
 npm install          # installs server and client (npm workspaces)
