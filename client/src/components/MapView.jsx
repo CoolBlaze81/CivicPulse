@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // OpenStreetMap tiles (SRS TBD-02: provider chosen as OSM + Leaflet).
-const TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ATTRIBUTION = '&copy; OpenStreetMap contributors';
 
 const iconCache = new Map();
@@ -52,7 +52,7 @@ export default function MapView({
       touchZoom={interactive}
       attributionControl={interactive}
     >
-      <TileLayer url={TILES} attribution={ATTRIBUTION} />
+      <TileLayer url={TILES} attribution={ATTRIBUTION} referrerPolicy="strict-origin-when-cross-origin" />
       <Recenter center={center} zoom={zoom} />
       {radius && <Circle center={[center.lat, center.lng]} radius={radius} pathOptions={{ color: '#1B2559', weight: 1, fillOpacity: 0.04 }} />}
       {dot && <Marker position={[dot.lat, dot.lng]} icon={dotIcon} />}

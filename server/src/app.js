@@ -22,13 +22,15 @@ export function createApp() {
   // Behind Vercel's (or another) proxy, req.ip comes from X-Forwarded-For.
   if (process.env.VERCEL || process.env.TRUST_PROXY) app.set('trust proxy', 1);
   app.use(helmet({
+    // OpenStreetMap refuses tile requests that carry no referrer.
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', 'blob:', 'https://*.tile.openstreetmap.org', 'https://*.public.blob.vercel-storage.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://tile.openstreetmap.org', 'https://*.tile.openstreetmap.org', 'https://*.public.blob.vercel-storage.com'],
         connectSrc: ["'self'"],
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
