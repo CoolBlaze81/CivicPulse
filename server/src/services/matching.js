@@ -32,8 +32,8 @@ function timeScore(hours) {
   return 1 - (hours - 24) / (24 * 13);
 }
 
-function sameDepartment(catA, catB) {
-  const row = getDb()
+async function sameDepartment(catA, catB) {
+  const row = await getDb()
     .prepare(
       `SELECT 1 FROM department_category a JOIN department_category b ON a.department_id = b.department_id
        WHERE a.category_id = ? AND b.category_id = ? LIMIT 1`
@@ -43,9 +43,9 @@ function sameDepartment(catA, catB) {
 }
 
 // Open incidents near a point (FR-16, OR-03).
-export function findCandidates({ latitude, longitude }, { radius = SEARCH_RADIUS_M, excludeIds = [] } = {}) {
+export async function findCandidates({ latitude, longitude }, { radius = SEARCH_RADIUS_M, excludeIds = [] } = {}) {
   const box = boundingBox({ lat: latitude, lng: longitude }, radius);
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `SELECT * FROM incident
        WHERE status IN (${OPEN_STATUSES.map(() => '?').join(',')})
@@ -58,9 +58,9 @@ export function findCandidates({ latitude, longitude }, { radius = SEARCH_RADIUS
     .filter((r) => r.distance_m <= radius);
 }
 
-export function score(report, incident) {
+export async function score(report, incident) {
   const db = getDb();
-  const linked = db.prepare('SELECT description, submitted_at FROM report WHERE incident_id = ?').all(incident.incident_id);
+  const linked = await db.prepare('SELECT description, submitted_at FROM report WHERE incident_id = ?').all(incident.incident_id);
   const texts = [incident.title, incident.description, ...linked.map((r) => r.description)];
   const text = Math.max(0, ...texts.map((t) => textSimilarity(report.description, t)));
 
@@ -70,7 +70,7 @@ export function score(report, incident) {
 
   let category = 0;
   if (report.category_id === incident.category_id) category = 1;
-  else if (sameDepartment(report.category_id, incident.category_id)) category = 0.5;
+  else if (await sameDepartment(report.category_id, incident.category_id)) category = 0.5;
 
   const distance_m = incident.distance_m ?? distanceMeters(
     { lat: report.latitude, lng: report.longitude },
@@ -102,10 +102,10 @@ export function score(report, incident) {
 }
 
 // Best candidate and what to do with it (Level 2 DFD 2.3).
-export function evaluate(report, options = {}) {
-  const candidates = findCandidates(report, options)
-    .map((inc) => ({ incident: inc, ...score(report, inc) }))
-    .sort((a, b) => b.score - a.score);
+export async function evaluate(report, options = {}) {
+  const candidates = [];
+  for (const inc of await findCandidates(report, options)) candidates.push({ incident: inc, ...(await score(report, inc)) });
+  candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0] || null;
   let decision = 'NEW';
   if (best && best.score >= AUTO_LINK_THRESHOLD) decision = 'AUTO_LINK';

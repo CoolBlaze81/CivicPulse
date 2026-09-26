@@ -32,49 +32,51 @@ export function normalisePhone(raw) {
   return /^[6-9]\d{9}$/.test(local) ? local : null;
 }
 
-export function requestOtp(rawPhone) {
+export async function requestOtp(rawPhone) {
   const phone = normalisePhone(rawPhone);
   if (!phone) throw new HttpError(422, 'Enter a 10-digit mobile number.');
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const expires = new Date(Date.now() + OTP_MINUTES * 60000).toISOString();
-  getDb()
+  await getDb()
     .prepare(
       `INSERT INTO otp_code (phone, code, expires_at, tries_left) VALUES (?, ?, ?, 3)
        ON CONFLICT(phone) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, tries_left = 3`
     )
     .run(phone, code, expires);
-  const existing = getDb().prepare("SELECT name FROM user WHERE phone = ? AND deleted = 0").get(phone);
+  const existing = await getDb().prepare(`SELECT name FROM "user" WHERE phone = ? AND deleted = 0`).get(phone);
   return { phone, demo_code: code, is_new: !existing };
 }
 
-export function verifyOtp(rawPhone, code, name) {
+export async function verifyOtp(rawPhone, code, name) {
   const db = getDb();
   const phone = normalisePhone(rawPhone);
-  const row = phone && db.prepare('SELECT * FROM otp_code WHERE phone = ?').get(phone);
+  const row = phone && (await db.prepare('SELECT * FROM otp_code WHERE phone = ?').get(phone));
   if (!row) throw new HttpError(400, 'Ask for a new code first.');
   if (Date.parse(row.expires_at) < Date.now()) throw new HttpError(400, 'That code has expired. Ask for a new one.');
   if (row.tries_left <= 0) throw new HttpError(429, 'Too many wrong codes. Ask for a new one.');
   if (String(code).trim() !== row.code) {
-    db.prepare('UPDATE otp_code SET tries_left = tries_left - 1 WHERE phone = ?').run(phone);
+    await db.prepare('UPDATE otp_code SET tries_left = tries_left - 1 WHERE phone = ?').run(phone);
     const left = row.tries_left - 1;
     throw new HttpError(401, left > 0 ? `That code doesn't match. ${left} ${left === 1 ? 'try' : 'tries'} left.` : 'Too many wrong codes. Ask for a new one.');
   }
-  db.prepare('DELETE FROM otp_code WHERE phone = ?').run(phone);
+  await db.prepare('DELETE FROM otp_code WHERE phone = ?').run(phone);
 
-  let user = db.prepare('SELECT * FROM user WHERE phone = ? AND deleted = 0').get(phone);
+  let user = await db.prepare('SELECT * FROM "user" WHERE phone = ? AND deleted = 0').get(phone);
   if (!user) {
     const cleanName = String(name || '').trim();
     if (!cleanName) throw new HttpError(422, 'Tell us your name to create your account.', 'NAME_REQUIRED');
-    const info = db.prepare("INSERT INTO user (name, phone, role, created_at) VALUES (?, ?, 'CITIZEN', ?)").run(cleanName, phone, nowIso());
-    user = db.prepare('SELECT * FROM user WHERE user_id = ?').get(info.lastInsertRowid);
+    const info = await db.prepare(`INSERT INTO "user" (name, phone, role, created_at) VALUES (?, ?, 'CITIZEN', ?)`).run(cleanName, phone, nowIso());
+    user = await db.prepare('SELECT * FROM "user" WHERE user_id = ?').get(info.lastInsertRowid);
   }
   if (user.role !== 'CITIZEN') throw new HttpError(403, 'Staff accounts sign in with a staff ID.');
   return { token: issueToken(user), user: publicUser(user) };
 }
 
-export function staffLogin(staffId, password) {
+export async function staffLogin(staffId, password) {
   const db = getDb();
-  const user = db.prepare("SELECT * FROM user WHERE staff_id = ? COLLATE NOCASE AND role != 'CITIZEN' AND deleted = 0").get(String(staffId || '').trim());
+  const user = await db
+    .prepare(`SELECT * FROM "user" WHERE lower(staff_id) = lower(?) AND role != 'CITIZEN' AND deleted = 0`)
+    .get(String(staffId || '').trim());
   const generic = (left) =>
     new HttpError(401, left != null && left <= 2
       ? `Staff ID or password is wrong. ${left} attempt${left === 1 ? '' : 's'} left before the account is locked for ${LOCK_MINUTES} minutes.`
@@ -87,32 +89,37 @@ export function staffLogin(staffId, password) {
   if (!bcrypt.compareSync(String(password || ''), user.password_hash || '')) {
     const failed = user.failed_logins + 1;
     if (failed >= MAX_FAILED_LOGINS) {
-      db.prepare('UPDATE user SET failed_logins = 0, locked_until = ? WHERE user_id = ?')
+      await db.prepare('UPDATE "user" SET failed_logins = 0, locked_until = ? WHERE user_id = ?')
         .run(new Date(Date.now() + LOCK_MINUTES * 60000).toISOString(), user.user_id);
       throw new HttpError(423, `Too many wrong attempts. The account is locked for ${LOCK_MINUTES} minutes.`, 'LOCKED');
     }
-    db.prepare('UPDATE user SET failed_logins = ? WHERE user_id = ?').run(failed, user.user_id);
+    await db.prepare('UPDATE "user" SET failed_logins = ? WHERE user_id = ?').run(failed, user.user_id);
     throw generic(MAX_FAILED_LOGINS - failed);
   }
-  db.prepare('UPDATE user SET failed_logins = 0, locked_until = NULL WHERE user_id = ?').run(user.user_id);
+  await db.prepare('UPDATE "user" SET failed_logins = 0, locked_until = NULL WHERE user_id = ?').run(user.user_id);
   return { token: issueToken(user), user: publicUser(user) };
 }
 
 // Express middleware: attaches req.user or answers 401.
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Please sign in.', code: 'NO_SESSION' });
+  let payload;
   try {
-    const payload = jwt.verify(token, SECRET);
-    const user = getDb().prepare('SELECT * FROM user WHERE user_id = ? AND deleted = 0').get(payload.sub);
-    if (!user) return res.status(401).json({ error: 'Your account no longer exists.', code: 'NO_SESSION' });
-    req.user = user;
-    next();
+    payload = jwt.verify(token, SECRET);
   } catch (e) {
     const expired = e.name === 'TokenExpiredError';
-    res.status(401).json({ error: expired ? 'Your session expired.' : 'Please sign in.', code: expired ? 'SESSION_EXPIRED' : 'NO_SESSION' });
+    return res.status(401).json({ error: expired ? 'Your session expired.' : 'Please sign in.', code: expired ? 'SESSION_EXPIRED' : 'NO_SESSION' });
   }
+  try {
+    const user = await getDb().prepare('SELECT * FROM "user" WHERE user_id = ? AND deleted = 0').get(payload.sub);
+    if (!user) return res.status(401).json({ error: 'Your account no longer exists.', code: 'NO_SESSION' });
+    req.user = user;
+  } catch (e) {
+    return next(e);
+  }
+  next();
 }
 
 export function requireRole(...roles) {

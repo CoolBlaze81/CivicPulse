@@ -7,7 +7,9 @@ import { attachReport, createIncidentFromReport, HttpError, reportCode, incident
 import { notify, notifyOfficers } from './notifications.js';
 
 // FR-12, FR-15: validate before storing. Returns a list of problems.
-export function validateReport(input) {
+// The photo is required for citizen reports (project decision; the SRS
+// lists it as optional), so the API passes requirePhoto.
+export async function validateReport(input, { hasPhoto = false, requirePhoto = false } = {}) {
   const problems = [];
   const description = String(input.description || '').trim();
   if (description.length < 5) problems.push({ field: 'description', message: 'Describe the problem in a few words.' });
@@ -17,13 +19,15 @@ export function validateReport(input) {
   if (input.latitude == null || input.longitude == null || !isValidCoord(lat, lng)) {
     problems.push({ field: 'location', message: 'Add a location. Pick it on the map if GPS is off.' });
   }
-  const cat = input.category_id && getDb().prepare('SELECT 1 FROM category WHERE category_id = ?').get(Number(input.category_id));
+  const catId = Number(input.category_id);
+  const cat = Number.isInteger(catId) && catId > 0 && (await getDb().prepare('SELECT 1 FROM category WHERE category_id = ?').get(catId));
   if (!cat) problems.push({ field: 'category', message: 'Choose what kind of problem this is.' });
+  if (requirePhoto && !hasPhoto) problems.push({ field: 'photo', message: 'Add a photo of the problem.' });
   return problems;
 }
 
 // Pre-submit check the citizen sees as "This looks already reported".
-export function previewMatch(input) {
+export async function previewMatch(input) {
   const report = {
     description: String(input.description || ''),
     category_id: Number(input.category_id),
@@ -32,7 +36,7 @@ export function previewMatch(input) {
     submitted_at: nowIso(),
   };
   if (!isValidCoord(report.latitude, report.longitude) || !report.category_id) return null;
-  const { best } = evaluate(report);
+  const { best } = await evaluate(report);
   if (!best || best.score < 0.6) return null;
   return {
     incident_id: best.incident.incident_id,
@@ -50,16 +54,16 @@ export function previewMatch(input) {
 //  - not_incident_id:  the citizen said "Different issue" for that candidate
 // Otherwise the matching engine decides: >= 90% auto-link, 60-90% officer
 // review (report waits unlinked), else a new incident.
-export function submitReport(citizenId, input, { photoUrl = null, at = nowIso() } = {}) {
-  const problems = validateReport(input);
+export async function submitReport(citizenId, input, { photoUrl = null, requirePhoto = false, at = nowIso() } = {}) {
+  const problems = await validateReport(input, { hasPhoto: !!photoUrl, requirePhoto });
   if (problems.length) {
     const err = new HttpError(422, `${problems.length} thing${problems.length > 1 ? 's' : ''} to fix before we can send this.`, 'VALIDATION');
     err.problems = problems;
     throw err;
   }
-  return tx(() => {
+  return tx(async () => {
     const db = getDb();
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO report (citizen_id, category_id, description, photo_url, latitude, longitude, address, submitted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -69,50 +73,50 @@ export function submitReport(citizenId, input, { photoUrl = null, at = nowIso() 
         Number(input.latitude), Number(input.longitude), String(input.address || '').trim() || null, at
       );
     const reportId = Number(info.lastInsertRowid);
-    const report = db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
+    const report = await db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
 
     let outcome;
     if (input.join_incident_id) {
-      const target = requireIncident(Number(input.join_incident_id));
+      const target = await requireIncident(Number(input.join_incident_id));
       if (target.status === 'CLOSED') throw new HttpError(409, `${incidentCode(target.incident_id)} is already closed. Submit this as a new report.`);
-      const { best } = evaluate(report, {});
+      const { best } = await evaluate(report, {});
       const score = best?.incident.incident_id === target.incident_id ? best.score : null;
-      attachReport(reportId, target.incident_id, { method: 'CITIZEN', score, by: citizenId, at });
+      await attachReport(reportId, target.incident_id, { method: 'CITIZEN', score, by: citizenId, at });
       outcome = { decision: 'LINKED', incident_id: target.incident_id };
     } else {
       const exclude = input.not_incident_id ? [Number(input.not_incident_id)] : [];
-      const { decision, best } = evaluate(report, { excludeIds: exclude });
+      const { decision, best } = await evaluate(report, { excludeIds: exclude });
       if (decision === 'AUTO_LINK') {
-        attachReport(reportId, best.incident.incident_id, { method: 'AUTO', score: best.score, at });
+        await attachReport(reportId, best.incident.incident_id, { method: 'AUTO', score: best.score, at });
         outcome = { decision: 'LINKED', incident_id: best.incident.incident_id, score: best.score };
       } else if (decision === 'REVIEW') {
-        db.prepare(
+        await db.prepare(
           `INSERT INTO match_review (report_id, candidate_incident_id, score, signals, created_at) VALUES (?, ?, ?, ?, ?)`
         ).run(reportId, best.incident.incident_id, best.score, JSON.stringify(best.signals), at);
-        notify(citizenId, {
+        await notify(citizenId, {
           type: 'REPORT_RECEIVED', reportId, at,
           message: `We received your report ${reportCode(reportId)}. An officer is checking whether it matches an existing incident.`,
         });
-        notifyOfficers(best.incident.incident_id, {
+        await notifyOfficers(best.incident.incident_id, {
           type: 'MATCH_REVIEW', at,
           message: `${reportCode(reportId)} may match ${incidentCode(best.incident.incident_id)} (${Math.round(best.score * 100)}%). Needs match review.`,
         });
         outcome = { decision: 'REVIEW', candidate_incident_id: best.incident.incident_id, score: best.score };
       } else {
-        const inc = createIncidentFromReport(report, { by: citizenId, at });
-        notifyOfficers(inc.incident_id, {
+        const inc = await createIncidentFromReport(report, { by: citizenId, at });
+        await notifyOfficers(inc.incident_id, {
           type: 'NEW_INCIDENT', at,
           message: `New incident ${incidentCode(inc.incident_id)}: ${inc.title}. Needs triage.`,
         });
         outcome = { decision: 'NEW', incident_id: inc.incident_id };
       }
     }
-    return { report_id: reportId, code: reportCode(reportId), ...outcome, report: getReportForCitizen(reportId) };
+    return { report_id: reportId, code: reportCode(reportId), ...outcome, report: await getReportForCitizen(reportId) };
   });
 }
 
-export function getReportForCitizen(reportId) {
-  const r = getDb()
+export async function getReportForCitizen(reportId) {
+  const r = await getDb()
     .prepare(
       `SELECT r.*, c.name AS category_name, i.title AS incident_title, i.status AS incident_status,
               i.report_count, i.priority

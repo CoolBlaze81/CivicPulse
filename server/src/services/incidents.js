@@ -27,22 +27,22 @@ export class HttpError extends Error {
   }
 }
 
-export function getIncident(id) {
+export async function getIncident(id) {
   return getDb().prepare('SELECT * FROM incident WHERE incident_id = ?').get(id);
 }
 
-export function requireIncident(id) {
-  const inc = getIncident(id);
+export async function requireIncident(id) {
+  const inc = await getIncident(id);
   if (!inc) throw new HttpError(404, `We can't find incident ${incidentCode(id)}.`, 'NOT_FOUND');
   return inc;
 }
 
-export function changeStatus(incidentId, toStatus, { by = null, reason = null, at = nowIso() } = {}) {
+export async function changeStatus(incidentId, toStatus, { by = null, reason = null, at = nowIso() } = {}) {
   const db = getDb();
-  const inc = requireIncident(incidentId);
+  const inc = await requireIncident(incidentId);
   if (inc.status === toStatus) return inc;
-  db.prepare('UPDATE incident SET status = ? WHERE incident_id = ?').run(toStatus, incidentId);
-  db.prepare(
+  await db.prepare('UPDATE incident SET status = ? WHERE incident_id = ?').run(toStatus, incidentId);
+  await db.prepare(
     `INSERT INTO status_history (incident_id, from_status, to_status, changed_by, reason, changed_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(incidentId, inc.status, toStatus, by, reason, at);
@@ -50,9 +50,9 @@ export function changeStatus(incidentId, toStatus, { by = null, reason = null, a
 }
 
 // A history line that is not a status change (e.g. "report linked").
-export function logEvent(incidentId, reason, { by = null, at = nowIso() } = {}) {
-  const inc = getIncident(incidentId);
-  getDb()
+export async function logEvent(incidentId, reason, { by = null, at = nowIso() } = {}) {
+  const inc = await getIncident(incidentId);
+  await getDb()
     .prepare(
       `INSERT INTO status_history (incident_id, from_status, to_status, changed_by, reason, changed_at)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -65,12 +65,12 @@ function shortStreet(address) {
   return first.replace(/^(no\.?\s*)?\d+[a-z]?\s+/i, '') || first;
 }
 
-export function createIncidentFromReport(report, { by = null, at = nowIso() } = {}) {
+export async function createIncidentFromReport(report, { by = null, at = nowIso() } = {}) {
   const db = getDb();
-  const cat = db.prepare('SELECT name, default_priority FROM category WHERE category_id = ?').get(report.category_id);
+  const cat = await db.prepare('SELECT name, default_priority FROM category WHERE category_id = ?').get(report.category_id);
   const ward = wardFor({ lat: report.latitude, lng: report.longitude });
   const title = `${cat.name}, ${report.address ? shortStreet(report.address) : `Ward ${ward}`}`;
-  const info = db
+  const info = await db
     .prepare(
       `INSERT INTO incident (category_id, title, description, priority, status, latitude, longitude, address, ward, report_count, opened_at)
        VALUES (?, ?, ?, ?, 'REPORTED', ?, ?, ?, ?, 0, ?)`
@@ -81,36 +81,36 @@ export function createIncidentFromReport(report, { by = null, at = nowIso() } = 
       ward, at
     );
   const incidentId = Number(info.lastInsertRowid);
-  db.prepare(
+  await db.prepare(
     `INSERT INTO status_history (incident_id, from_status, to_status, changed_by, reason, changed_at)
      VALUES (?, NULL, 'REPORTED', ?, ?, ?)`
   ).run(incidentId, by, `Opened from ${reportCode(report.report_id)}`, at);
-  attachReport(report.report_id, incidentId, { method: 'NEW', score: null, by, at, isNew: true });
+  await attachReport(report.report_id, incidentId, { method: 'NEW', score: null, by, at, isNew: true });
   return getIncident(incidentId);
 }
 
-function recount(incidentId) {
+async function recount(incidentId) {
   const db = getDb();
-  const n = db.prepare('SELECT COUNT(*) n FROM report WHERE incident_id = ?').get(incidentId).n;
-  db.prepare('UPDATE incident SET report_count = ? WHERE incident_id = ?').run(n, incidentId);
+  const { n } = await db.prepare('SELECT COUNT(*) n FROM report WHERE incident_id = ?').get(incidentId);
+  await db.prepare('UPDATE incident SET report_count = ? WHERE incident_id = ?').run(n, incidentId);
   return n;
 }
 
 // Associates a report with an incident and notifies the reporter.
-export function attachReport(reportId, incidentId, { method, score = null, by = null, at = nowIso(), isNew = false }) {
+export async function attachReport(reportId, incidentId, { method, score = null, by = null, at = nowIso(), isNew = false }) {
   const db = getDb();
-  const inc = requireIncident(incidentId);
+  const inc = await requireIncident(incidentId);
   if (inc.status === 'CLOSED') throw new HttpError(409, `${incidentCode(incidentId)} is already closed.`, 'CLOSED');
-  const report = db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
-  db.prepare('UPDATE report SET incident_id = ?, link_method = ?, match_score = ?, linked_at = ? WHERE report_id = ?')
+  const report = await db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
+  await db.prepare('UPDATE report SET incident_id = ?, link_method = ?, match_score = ?, linked_at = ? WHERE report_id = ?')
     .run(incidentId, method, score, at, reportId);
-  const count = recount(incidentId);
+  const count = await recount(incidentId);
 
   if (!isNew) {
     const how = { AUTO: 'automatically', OFFICER: 'by an officer', CITIZEN: 'by the reporter' }[method] || '';
-    logEvent(incidentId, `${reportCode(reportId)} linked ${how}${score != null ? ` (${Math.round(score * 100)}% match)` : ''}`, { by, at });
-    if (inc.status === 'REPORTED') changeStatus(incidentId, 'LINKED', { by, reason: 'Second report linked', at });
-    notify(report.citizen_id, {
+    await logEvent(incidentId, `${reportCode(reportId)} linked ${how}${score != null ? ` (${Math.round(score * 100)}% match)` : ''}`, { by, at });
+    if (inc.status === 'REPORTED') await changeStatus(incidentId, 'LINKED', { by, reason: 'Second report linked', at });
+    await notify(report.citizen_id, {
       type: 'REPORT_LINKED',
       incidentId,
       reportId,
@@ -118,7 +118,7 @@ export function attachReport(reportId, incidentId, { method, score = null, by = 
       message: `Your report joined ${count - 1} other${count - 1 === 1 ? '' : 's'} about the same problem: ${inc.title}.`,
     });
   } else {
-    notify(report.citizen_id, {
+    await notify(report.citizen_id, {
       type: 'REPORT_RECEIVED',
       incidentId,
       reportId,
@@ -126,25 +126,25 @@ export function attachReport(reportId, incidentId, { method, score = null, by = 
       message: `We received your report ${reportCode(reportId)}. It opened a new incident, ${incidentCode(incidentId)}.`,
     });
   }
-  refreshRecommendations(incidentId);
+  await refreshRecommendations(incidentId);
   return getIncident(incidentId);
 }
 
 // Officer correction (FR-21): take a report off its incident. It becomes a
 // new incident of its own; an automatic link undone this way is counted.
-export function unlinkReport(reportId, { by, at = nowIso() }) {
+export async function unlinkReport(reportId, { by, at = nowIso() }) {
   const db = getDb();
-  const report = db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
+  const report = await db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
   if (!report?.incident_id) throw new HttpError(404, 'That report is not linked to an incident.');
-  const inc = getIncident(report.incident_id);
+  const inc = await getIncident(report.incident_id);
   if (inc.report_count <= 1) throw new HttpError(409, 'This is the only report on the incident, so there is nothing to unlink it from.');
-  if (report.link_method === 'AUTO') db.prepare('UPDATE report SET auto_link_overridden = 1 WHERE report_id = ?').run(reportId);
+  if (report.link_method === 'AUTO') await db.prepare('UPDATE report SET auto_link_overridden = 1 WHERE report_id = ?').run(reportId);
   // If the first report is unlinked the incident keeps the rest.
-  db.prepare('UPDATE report SET incident_id = NULL WHERE report_id = ?').run(reportId);
-  recount(inc.incident_id);
-  logEvent(inc.incident_id, `${reportCode(reportId)} unlinked by an officer`, { by, at });
-  refreshRecommendations(inc.incident_id);
-  const fresh = db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
+  await db.prepare('UPDATE report SET incident_id = NULL WHERE report_id = ?').run(reportId);
+  await recount(inc.incident_id);
+  await logEvent(inc.incident_id, `${reportCode(reportId)} unlinked by an officer`, { by, at });
+  await refreshRecommendations(inc.incident_id);
+  const fresh = await db.prepare('SELECT * FROM report WHERE report_id = ?').get(reportId);
   return createIncidentFromReport(fresh, { by, at });
 }
 
@@ -178,36 +178,36 @@ export function decorateIncident(row) {
   };
 }
 
-export function incidentSummary(id) {
-  return decorateIncident(getDb().prepare(incidentSummarySql('i.incident_id = ?')).get(id));
+export async function incidentSummary(id) {
+  return decorateIncident(await getDb().prepare(incidentSummarySql('i.incident_id = ?')).get(id));
 }
 
-export function incidentHistory(id) {
+export async function incidentHistory(id) {
   return getDb()
     .prepare(
       `SELECT h.*, u.name AS changed_by_name, u.role AS changed_by_role
-       FROM status_history h LEFT JOIN user u ON u.user_id = h.changed_by
+       FROM status_history h LEFT JOIN "user" u ON u.user_id = h.changed_by
        WHERE h.incident_id = ? ORDER BY h.changed_at DESC, h.history_id DESC`
     )
     .all(id);
 }
 
-export function incidentReports(id) {
-  return getDb()
+export async function incidentReports(id) {
+  const rows = await getDb()
     .prepare(
       `SELECT r.*, u.name AS citizen_name, c.name AS category_name FROM report r
-       JOIN user u ON u.user_id = r.citizen_id JOIN category c ON c.category_id = r.category_id
+       JOIN "user" u ON u.user_id = r.citizen_id JOIN category c ON c.category_id = r.category_id
        WHERE r.incident_id = ? ORDER BY r.submitted_at`
     )
-    .all(id)
-    .map((r) => ({ ...r, code: reportCode(r.report_id) }));
+    .all(id);
+  return rows.map((r) => ({ ...r, code: reportCode(r.report_id) }));
 }
 
-export function incidentWorkUpdates(id) {
+export async function incidentWorkUpdates(id) {
   return getDb()
     .prepare(
       `SELECT w.*, u.name AS worker_name, cr.name AS crew_name FROM work_update w
-       JOIN user u ON u.user_id = w.field_worker_id LEFT JOIN crew cr ON cr.crew_id = u.crew_id
+       JOIN "user" u ON u.user_id = w.field_worker_id LEFT JOIN crew cr ON cr.crew_id = u.crew_id
        WHERE w.incident_id = ? ORDER BY w.created_at DESC, w.update_id DESC`
     )
     .all(id);

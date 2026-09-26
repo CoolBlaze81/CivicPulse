@@ -31,33 +31,33 @@ export const PRIORITY_LABELS = { P1: 'Critical', P2: 'High', P3: 'Medium', P4: '
 
 const raise = (p, levels = 1) => PRIORITIES[Math.max(0, PRIORITIES.indexOf(p) - levels)];
 
-export function listCategories() {
+export async function listCategories() {
   return getDb().prepare('SELECT * FROM category ORDER BY name').all();
 }
 
-export function categoryByName(name) {
+export async function categoryByName(name) {
   return getDb().prepare('SELECT * FROM category WHERE name = ?').get(name);
 }
 
 // Returns categories ranked by keyword hits, best first, with a 0..1 confidence.
-export function recommendCategory(text) {
+export async function recommendCategory(text) {
   const lower = String(text || '').toLowerCase();
   const scored = Object.entries(CATEGORY_KEYWORDS)
     .map(([name, words]) => ({ name, hits: words.filter((w) => lower.includes(w)).length }))
     .filter((c) => c.hits > 0)
     .sort((a, b) => b.hits - a.hits);
   const total = scored.reduce((s, c) => s + c.hits, 0);
-  return scored.map((c) => {
-    const cat = categoryByName(c.name);
-    return { category_id: cat?.category_id, name: c.name, confidence: total ? c.hits / total : 0 };
-  }).filter((c) => c.category_id);
+  const ids = new Map((await listCategories()).map((c) => [c.name, c.category_id]));
+  return scored
+    .map((c) => ({ category_id: ids.get(c.name), name: c.name, confidence: total ? c.hits / total : 0 }))
+    .filter((c) => c.category_id);
 }
 
 // Priority for an incident from its category default, text of all linked
 // reports, and how many independent reports arrived recently.
-export function recommendPriority({ categoryId, texts = [], reportCount = 1, recentReportCount = reportCount }) {
+export async function recommendPriority({ categoryId, texts = [], reportCount = 1, recentReportCount = reportCount }) {
   const db = getDb();
-  const cat = db.prepare('SELECT * FROM category WHERE category_id = ?').get(categoryId);
+  const cat = await db.prepare('SELECT * FROM category WHERE category_id = ?').get(categoryId);
   let priority = cat?.default_priority || 'P3';
   const reasons = [];
   const all = texts.join(' ');
@@ -83,7 +83,7 @@ export function recommendPriority({ categoryId, texts = [], reportCount = 1, rec
 }
 
 // Department that lists this category in DEPARTMENT_CATEGORY (editable by dept heads).
-export function recommendDepartment(categoryId) {
+export async function recommendDepartment(categoryId) {
   return getDb()
     .prepare(
       `SELECT d.* FROM department d JOIN department_category dc ON dc.department_id = d.department_id
@@ -94,11 +94,11 @@ export function recommendDepartment(categoryId) {
 
 // Recompute and store recommendations on an incident. Officer-set values
 // (triaged incidents) are left alone; only the rec_* columns change.
-export function refreshRecommendations(incidentId) {
+export async function refreshRecommendations(incidentId) {
   const db = getDb();
-  const inc = db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(incidentId);
+  const inc = await db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(incidentId);
   if (!inc) return null;
-  const reports = db.prepare('SELECT description, category_id, submitted_at FROM report WHERE incident_id = ?').all(incidentId);
+  const reports = await db.prepare('SELECT description, category_id, submitted_at FROM report WHERE incident_id = ?').all(incidentId);
   const texts = [inc.title, inc.description, ...reports.map((r) => r.description)];
 
   // Majority category across linked reports, falling back to the incident's.
@@ -108,22 +108,22 @@ export function refreshRecommendations(incidentId) {
 
   const dayAgo = Date.now() - 24 * 3600 * 1000;
   const recent = reports.filter((r) => Date.parse(r.submitted_at) >= dayAgo).length;
-  const { priority, reasons } = recommendPriority({
+  const { priority, reasons } = await recommendPriority({
     categoryId: recCategory,
     texts,
     reportCount: reports.length,
     recentReportCount: recent,
   });
-  const dept = recommendDepartment(recCategory);
+  const dept = await recommendDepartment(recCategory);
 
-  db.prepare(
+  await db.prepare(
     `UPDATE incident SET rec_category_id = ?, rec_priority = ?, rec_department_id = ?, rec_reasons = ?
      WHERE incident_id = ?`
   ).run(recCategory, priority, dept?.department_id || null, JSON.stringify(reasons), incidentId);
 
   // Before an officer triages, the live values follow the recommendation.
   if (!inc.triaged) {
-    db.prepare('UPDATE incident SET category_id = ?, priority = ?, department_id = ? WHERE incident_id = ?')
+    await db.prepare('UPDATE incident SET category_id = ?, priority = ?, department_id = ? WHERE incident_id = ?')
       .run(recCategory, priority, dept?.department_id || null, incidentId);
   }
   return { categoryId: recCategory, priority, departmentId: dept?.department_id, reasons };

@@ -4,10 +4,9 @@
 // scenarios shown in the design mockups.
 //
 //   npm run seed          wipe and rebuild the demo database
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR, getDb, openDb } from './db.js';
+import { connect, getDb, openDb, ready, TABLES, withConnection } from './db.js';
 import { hashPassword } from './auth.js';
 import { wardCenter, wardFor } from './services/geo.js';
 import { submitReport } from './services/reports.js';
@@ -105,20 +104,10 @@ const FIRST = ['Aditi', 'Rohan', 'Priya', 'Kabir', 'Sneha', 'Arjun', 'Meera', 'V
   'Lata', 'Manish', 'Nisha', 'Pranav', 'Rekha', 'Samir', 'Uma', 'Varun', 'Asha', 'Gaurav', 'Hema', 'Irfan'];
 const LAST = ['Sharma', 'Patil', 'Iyer', 'Khan', 'Deshmukh', 'Joshi', 'Nair', 'Gupta', 'Kulkarni', 'Reddy', 'Pawar', 'Das', 'Bose', 'Pillai'];
 
-function reset() {
-  const file = process.env.CIVICPULSE_DB || path.join(DATA_DIR, 'civicpulse.db');
+async function reset() {
   const db = getDb();
-  if (file === ':memory:') {
-    db.exec(`PRAGMA foreign_keys = OFF;
-      DELETE FROM notification; DELETE FROM verification_request; DELETE FROM work_update; DELETE FROM assignment;
-      DELETE FROM status_history; DELETE FROM match_review; DELETE FROM report; DELETE FROM incident; DELETE FROM otp_code;
-      DELETE FROM equipment; DELETE FROM user; DELETE FROM crew; DELETE FROM department_category; DELETE FROM category;
-      DELETE FROM department; DELETE FROM sqlite_sequence; PRAGMA foreign_keys = ON;`);
-    return db;
-  }
-  db.close();
-  for (const suffix of ['', '-wal', '-shm']) fs.rmSync(file + suffix, { force: true });
-  return openDb(file);
+  await db.exec(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`);
+  return db;
 }
 
 function jitter(point, meters) {
@@ -135,65 +124,70 @@ function randomPointInWard(ward) {
   }
 }
 
-export function seed({ now = Date.now(), historyDays = 100 } = {}) {
-  const db = reset();
+export async function seed({ now = Date.now(), historyDays = 100 } = {}) {
+  const db = await reset();
   const iso = (t) => new Date(t).toISOString();
   const pw = hashPassword(DEMO_PASSWORD);
-  db.exec("INSERT INTO sqlite_sequence (name, seq) VALUES ('incident', 1000), ('report', 8000)");
 
   // ---- reference data ----
   const catId = {};
   for (const [name, p] of CATEGORIES) {
-    catId[name] = Number(db.prepare('INSERT INTO category (name, default_priority) VALUES (?, ?)').run(name, p).lastInsertRowid);
+    catId[name] = Number((await db.prepare('INSERT INTO category (name, default_priority) VALUES (?, ?)').run(name, p)).lastInsertRowid);
   }
   const deptId = {};
   const crewIds = {};
   const insertUser = db.prepare(
-    `INSERT INTO user (name, phone, staff_id, password_hash, role, department_id, crew_id, wards, home_area, created_at)
-     VALUES (@name, @phone, @staff_id, @password_hash, @role, @department_id, @crew_id, @wards, @home_area, @created_at)`
+    `INSERT INTO "user" (name, phone, staff_id, password_hash, role, department_id, crew_id, wards, home_area, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  const user = (u) => Number(insertUser.run({
-    phone: null, staff_id: null, password_hash: null, department_id: null, crew_id: null, wards: null, home_area: null,
-    created_at: iso(now - (historyDays + 30) * DAY), ...u,
-  }).lastInsertRowid);
+  const user = async (u) => {
+    const f = {
+      phone: null, staff_id: null, password_hash: null, department_id: null, crew_id: null, wards: null, home_area: null,
+      created_at: iso(now - (historyDays + 30) * DAY), ...u,
+    };
+    const info = await insertUser.run(f.name, f.phone, f.staff_id, f.password_hash, f.role, f.department_id, f.crew_id, f.wards, f.home_area, f.created_at);
+    return Number(info.lastInsertRowid);
+  };
 
   for (const d of DEPARTMENTS) {
-    const id = Number(db.prepare('INSERT INTO department (name, short_code) VALUES (?, ?)').run(d.name, d.code).lastInsertRowid);
+    const id = Number((await db.prepare('INSERT INTO department (name, short_code) VALUES (?, ?)').run(d.name, d.code)).lastInsertRowid);
     deptId[d.name] = id;
-    for (const c of d.categories) db.prepare('INSERT INTO department_category VALUES (?, ?)').run(id, catId[c]);
+    for (const c of d.categories) await db.prepare('INSERT INTO department_category VALUES (?, ?)').run(id, catId[c]);
     for (const [name, members, skills, zone, availability, maxLoad] of CREWS[d.code]) {
       const crewId = Number(
-        db.prepare('INSERT INTO crew (department_id, name, members, zone, skills, availability, max_load) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(id, name, members, zone, skills, availability, maxLoad).lastInsertRowid
+        (await db.prepare('INSERT INTO crew (department_id, name, members, zone, skills, availability, max_load) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(id, name, members, zone, skills, availability, maxLoad)).lastInsertRowid
       );
       crewIds[name] = crewId;
-      user({ name: `${name} lead`, staff_id: `CREW-${name.split(' ')[1]}`, password_hash: pw, role: 'FIELD_WORKER', crew_id: crewId });
+      await user({ name: `${name} lead`, staff_id: `CREW-${name.split(' ')[1]}`, password_hash: pw, role: 'FIELD_WORKER', crew_id: crewId });
     }
     for (const [name, total, avail] of EQUIPMENT[d.code]) {
-      db.prepare('INSERT INTO equipment (department_id, name, total_units, available_units) VALUES (?, ?, ?, ?)').run(id, name, total, avail);
+      await db.prepare('INSERT INTO equipment (department_id, name, total_units, available_units) VALUES (?, ?, ?, ?)').run(id, name, total, avail);
     }
-    const headId = user({ name: d.head[0], staff_id: d.head[1], password_hash: pw, role: 'DEPT_HEAD', department_id: id });
-    db.prepare('UPDATE department SET head_user_id = ? WHERE department_id = ?').run(headId, id);
+    const headId = await user({ name: d.head[0], staff_id: d.head[1], password_hash: pw, role: 'DEPT_HEAD', department_id: id });
+    await db.prepare('UPDATE department SET head_user_id = ? WHERE department_id = ?').run(headId, id);
   }
   // Rename crew leads to people so notifications read naturally.
   const crewLeadNames = ['Ravi Kumar', 'Sunil Jadhav', 'Imran Shaikh', 'Ganesh More', 'Prakash Naik', 'Dinesh Yadav', 'Ajay Salunkhe', 'Mohan Lal',
     'Salim Ansari', 'Rajesh Pal', 'Kiran Bhosale', 'Anil Gawde', 'Ramesh Babu', 'Suresh Kamble', 'Vijay Thakur', 'Nitin Chavan', 'Arif Sayyed',
     'Deepak Shinde', 'Mahesh Patil', 'Santosh Rane'];
-  db.prepare("SELECT user_id FROM user WHERE role = 'FIELD_WORKER' ORDER BY user_id").all()
-    .forEach((u, i) => db.prepare('UPDATE user SET name = ? WHERE user_id = ?').run(crewLeadNames[i % crewLeadNames.length], u.user_id));
+  const leads = await db.prepare(`SELECT user_id FROM "user" WHERE role = 'FIELD_WORKER' ORDER BY user_id`).all();
+  for (const [i, u] of leads.entries()) {
+    await db.prepare('UPDATE "user" SET name = ? WHERE user_id = ?').run(crewLeadNames[i % crewLeadNames.length], u.user_id);
+  }
 
-  const officer = user({ name: 'R. Kapoor', staff_id: 'OFF-101', password_hash: pw, role: 'OFFICER', wards: '7,8,9,10,11,12' });
-  const officer2 = user({ name: 'N. Iyer', staff_id: 'OFF-102', password_hash: pw, role: 'OFFICER', wards: '1,2,3,4,5,6' });
-  user({ name: 'A. Desai', staff_id: 'ADM-001', password_hash: pw, role: 'ADMIN' });
+  const officer = await user({ name: 'R. Kapoor', staff_id: 'OFF-101', password_hash: pw, role: 'OFFICER', wards: '7,8,9,10,11,12' });
+  const officer2 = await user({ name: 'N. Iyer', staff_id: 'OFF-102', password_hash: pw, role: 'OFFICER', wards: '1,2,3,4,5,6' });
+  await user({ name: 'A. Desai', staff_id: 'ADM-001', password_hash: pw, role: 'ADMIN' });
 
-  const aarav = user({ name: 'Aarav Mehta', phone: '9876543210', role: 'CITIZEN', home_area: 'Sector 14' });
+  const aarav = await user({ name: 'Aarav Mehta', phone: '9876543210', role: 'CITIZEN', home_area: 'Sector 14' });
   const citizens = [];
   for (let i = 0; i < 60; i += 1) {
-    citizens.push(user({ name: `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]}`, phone: `98${String(20000000 + i * 7919).slice(0, 8)}`, role: 'CITIZEN' }));
+    citizens.push(await user({ name: `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]}`, phone: `98${String(20000000 + i * 7919).slice(0, 8)}`, role: 'CITIZEN' }));
   }
   const officerFor = (ward) => (ward >= 7 ? officer : officer2);
-  const actor = (id) => db.prepare('SELECT * FROM user WHERE user_id = ?').get(id);
-  const crewLead = (crewId) => db.prepare("SELECT * FROM user WHERE crew_id = ? AND role = 'FIELD_WORKER'").get(crewId);
+  const actor = async (id) => await db.prepare('SELECT * FROM "user" WHERE user_id = ?').get(id);
+  const crewLead = async (crewId) => await db.prepare(`SELECT * FROM "user" WHERE crew_id = ? AND role = 'FIELD_WORKER'`).get(crewId);
 
   // ---- synthetic history ----
   // Incidents start through the matching engine, then go through the full
@@ -231,24 +225,24 @@ export function seed({ now = Date.now(), historyDays = 100 } = {}) {
     for (let j = 0; j < ev.reports; j += 1) {
       const at = ev.start + (j === 0 ? 0 : between(0.2, 30) * HOUR * j ** 0.5);
       const p = jitter(ev.point, j === 0 ? 0 : 45);
-      const out = submitReport(pick(citizens), {
+      const out = await submitReport(pick(citizens), {
         description: text(), category_id: catId[ev.category], latitude: p.lat, longitude: p.lng, address,
       }, { at: iso(at) });
       if (j === 0) {
         incidentId = out.incident_id ?? out.candidate_incident_id;
         if (out.decision === 'REVIEW') {
           // First report looked like an older incident: officer says new.
-          const rev = db.prepare('SELECT review_id FROM match_review WHERE report_id = ?').get(out.report_id);
-          incidentId = decide(rev.review_id, { decision: 'NEW_INCIDENT' }, officerFor(ev.ward), iso(at + 2 * HOUR)).incident_id;
+          const rev = await db.prepare('SELECT review_id FROM match_review WHERE report_id = ?').get(out.report_id);
+          incidentId = (await decide(rev.review_id, { decision: 'NEW_INCIDENT' }, officerFor(ev.ward), iso(at + 2 * HOUR))).incident_id;
         } else if (out.decision === 'LINKED') {
           incidentId = null; // joined an older incident; nothing new to run
           break;
         }
       } else if (out.decision === 'REVIEW') {
         reviewTruth.set(out.report_id, incidentId);
-        const rev = db.prepare('SELECT review_id, candidate_incident_id FROM match_review WHERE report_id = ?').get(out.report_id);
+        const rev = await db.prepare('SELECT review_id, candidate_incident_id FROM match_review WHERE report_id = ?').get(out.report_id);
         const d = rev.candidate_incident_id === incidentId ? { decision: 'LINK' } : { decision: 'OTHER', otherIncidentId: incidentId };
-        decide(rev.review_id, d, officerFor(ev.ward), iso(at + between(0.5, 5) * HOUR));
+        await decide(rev.review_id, d, officerFor(ev.ward), iso(at + between(0.5, 5) * HOUR));
       } else if (out.decision === 'NEW') {
         // Engine missed it; the officer links it during triage via review.
       }
@@ -257,7 +251,7 @@ export function seed({ now = Date.now(), historyDays = 100 } = {}) {
   }
 
   for (const ev of lifecycle) {
-    const inc = db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
+    const inc = await db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
     if (!inc || inc.status === 'CLOSED') continue;
     const age = (now - ev.start) / DAY;
     const officerId = officerFor(ev.ward);
@@ -266,24 +260,24 @@ export function seed({ now = Date.now(), historyDays = 100 } = {}) {
     const resolveAfter = RESOLVE_DAYS[ev.category] * speed * between(0.55, 1.5) * DAY;
     const tAssign = ev.start + between(1, 10) * HOUR;
     if (tAssign > now - 2 * HOUR) continue; // still waiting for triage
-    const deptIdFor = refreshRecommendations(ev.incidentId).departmentId;
-    classify(ev.incidentId, {}, officerId, iso(tAssign - 10 * 60000));
-    const crew = suggestCrew(deptIdFor, ev.ward);
+    const deptIdFor = (await refreshRecommendations(ev.incidentId)).departmentId;
+    await classify(ev.incidentId, {}, officerId, iso(tAssign - 10 * 60000));
+    const crew = await suggestCrew(deptIdFor, ev.ward);
     if (!crew) continue;
-    assign(ev.incidentId, { departmentId: deptIdFor, crewId: crew.crew_id }, actor(officerId), iso(tAssign));
-    const worker = crewLead(crew.crew_id);
+    await assign(ev.incidentId, { departmentId: deptIdFor, crewId: crew.crew_id }, await actor(officerId), iso(tAssign));
+    const worker = await crewLead(crew.crew_id);
     const tWork = tAssign + Math.min(resolveAfter * 0.4, between(2, 20) * HOUR);
     if (tWork > now) continue;
-    updateProgress(ev.incidentId, worker, { stage: 'WORKING' }, iso(tWork));
+    await updateProgress(ev.incidentId, worker, { stage: 'WORKING' }, iso(tWork));
     const tResolved = ev.start + resolveAfter;
     if (tResolved > now - 1 * HOUR) continue;
     const proof = jitter({ lat: inc.latitude, lng: inc.longitude }, 12);
-    updateProgress(ev.incidentId, worker, {
+    await updateProgress(ev.incidentId, worker, {
       stage: 'RESOLVED', note: 'Work completed and site cleared.', latitude: proof.lat, longitude: proof.lng,
     }, iso(tResolved));
 
     // Verification: most reporters answer within a day; a few never do.
-    const reqs = db.prepare('SELECT * FROM verification_request WHERE incident_id = ? AND response IS NULL').all(ev.incidentId);
+    const reqs = await db.prepare('SELECT * FROM verification_request WHERE incident_id = ? AND response IS NULL').all(ev.incidentId);
     const silent = rand() < 0.1;
     const failed = rand() < 0.065;
     let t = tResolved;
@@ -291,207 +285,207 @@ export function seed({ now = Date.now(), historyDays = 100 } = {}) {
       if (silent || rand() < 0.25) continue;
       t += between(1, 20) * HOUR;
       if (t > now) break;
-      const cur = db.prepare('SELECT status FROM incident WHERE incident_id = ?').get(ev.incidentId);
+      const cur = await db.prepare('SELECT status FROM incident WHERE incident_id = ?').get(ev.incidentId);
       if (cur.status !== 'AWAITING_VERIFICATION') break;
-      recordResponse(ev.incidentId, r.citizen_id, {
+      await recordResponse(ev.incidentId, r.citizen_id, {
         fixed: !failed, feedback: failed ? 'Still not fixed, the problem came back.' : null,
       }, iso(t));
     }
     const expiry = tResolved + 72 * HOUR;
     if (expiry <= now) {
-      evaluateVerification(ev.incidentId, { at: iso(expiry) });
-      const cur = db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
+      await evaluateVerification(ev.incidentId, { at: iso(expiry) });
+      const cur = await db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
       if (cur.needs_officer_verification && expiry + 5 * HOUR <= now) {
-        officerVerify(ev.incidentId, { close: true }, officerId, iso(expiry + between(1, 5) * HOUR));
+        await officerVerify(ev.incidentId, { close: true }, officerId, iso(expiry + between(1, 5) * HOUR));
       }
     }
     // Reopened ones get a second round with another crew visit.
-    const after = db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
+    const after = await db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(ev.incidentId);
     if (after.status === 'REOPENED') {
-      const lastChange = db.prepare("SELECT MAX(changed_at) t FROM status_history WHERE incident_id = ?").get(ev.incidentId).t;
+      const { t: lastChange } = await db.prepare('SELECT MAX(changed_at) t FROM status_history WHERE incident_id = ?').get(ev.incidentId);
       const tRe = Date.parse(lastChange) + between(3, 12) * HOUR;
       const tFix = tRe + between(0.5, 2) * DAY;
       if (tFix + 30 * HOUR < now) {
-        const crew2 = suggestCrew(after.department_id, ev.ward) || crew;
-        assign(ev.incidentId, { departmentId: after.department_id, crewId: crew2.crew_id }, actor(officerId), iso(tRe));
-        const w2 = crewLead(crew2.crew_id);
-        updateProgress(ev.incidentId, w2, { stage: 'RESOLVED', note: 'Redone properly after citizen feedback.', latitude: proof.lat, longitude: proof.lng }, iso(tFix));
-        const reqs2 = db.prepare(
+        const crew2 = await suggestCrew(after.department_id, ev.ward) || crew;
+        await assign(ev.incidentId, { departmentId: after.department_id, crewId: crew2.crew_id }, await actor(officerId), iso(tRe));
+        const w2 = await crewLead(crew2.crew_id);
+        await updateProgress(ev.incidentId, w2, { stage: 'RESOLVED', note: 'Redone properly after citizen feedback.', latitude: proof.lat, longitude: proof.lng }, iso(tFix));
+        const reqs2 = await db.prepare(
           `SELECT * FROM verification_request WHERE incident_id = ? AND response IS NULL
            AND round = (SELECT MAX(round) FROM verification_request WHERE incident_id = ?)`
         ).all(ev.incidentId, ev.incidentId);
         let t2 = tFix;
         for (const r of reqs2) {
           t2 += between(1, 10) * HOUR;
-          const cur = db.prepare('SELECT status FROM incident WHERE incident_id = ?').get(ev.incidentId);
+          const cur = await db.prepare('SELECT status FROM incident WHERE incident_id = ?').get(ev.incidentId);
           if (t2 > now || cur.status !== 'AWAITING_VERIFICATION') break;
-          recordResponse(ev.incidentId, r.citizen_id, { fixed: true }, iso(t2));
+          await recordResponse(ev.incidentId, r.citizen_id, { fixed: true }, iso(t2));
         }
       }
     }
   }
   // Anything whose window has already run out is settled "as of now".
-  sweepExpired(iso(now));
+  await sweepExpired(iso(now));
   // History reviews older than a day were handled by officers.
-  for (const rev of pendingReviews()) {
-    if (Date.parse(rev.created_at) < now - DAY) decide(rev.review_id, { decision: 'LINK' }, officer, iso(Date.parse(rev.created_at) + 3 * HOUR));
+  for (const rev of await pendingReviews()) {
+    if (Date.parse(rev.created_at) < now - DAY) await decide(rev.review_id, { decision: 'LINK' }, officer, iso(Date.parse(rev.created_at) + 3 * HOUR));
   }
   // History notifications are old news.
-  db.prepare('UPDATE notification SET is_read = 1 WHERE created_at < ?').run(iso(now - 2 * DAY));
+  await db.prepare('UPDATE notification SET is_read = 1 WHERE created_at < ?').run(iso(now - 2 * DAY));
 
-  seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, citizens, actor, crewLead });
+  await seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, citizens, actor, crewLead });
 
-  const counts = db.prepare(`SELECT (SELECT COUNT(*) FROM incident) incidents, (SELECT COUNT(*) FROM report) reports,
-    (SELECT COUNT(*) FROM user) users`).get();
+  const counts = await db.prepare(`SELECT (SELECT COUNT(*) FROM incident) incidents, (SELECT COUNT(*) FROM report) reports,
+    (SELECT COUNT(*) FROM "user") users`).get();
   return counts;
 }
 
 // ---- the live scenarios from the design mockups ----------------------------
-function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, citizens, actor, crewLead }) {
+async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, citizens, actor, crewLead }) {
   const home = wardCenter(11); // Aarav lives in Sector 14, Ward 11
   let ci = 0;
   const nextCitizen = () => citizens[(ci++ * 7) % citizens.length];
 
   // Inserts one report at a point and links it (or opens the incident).
-  function report(citizenId, { category, text, point, address, at, incidentId = null, method = 'AUTO', score = null }) {
-    const info = db
+  async function report(citizenId, { category, text, point, address, at, incidentId = null, method = 'AUTO', score = null }) {
+    const info = await db
       .prepare(
         `INSERT INTO report (citizen_id, category_id, description, latitude, longitude, address, submitted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(citizenId, catId[category], text, point.lat, point.lng, address, iso(at));
-    const rep = db.prepare('SELECT * FROM report WHERE report_id = ?').get(info.lastInsertRowid);
+    const rep = await db.prepare('SELECT * FROM report WHERE report_id = ?').get(info.lastInsertRowid);
     if (incidentId) {
-      attachReport(rep.report_id, incidentId, { method, score: score ?? (method === 'AUTO' ? between(0.9, 0.98) : null), at: iso(at) });
+      await attachReport(rep.report_id, incidentId, { method, score: score ?? (method === 'AUTO' ? between(0.9, 0.98) : null), at: iso(at) });
       return incidentId;
     }
-    return createIncidentFromReport(rep, { by: citizenId, at: iso(at) }).incident_id;
+    return (await createIncidentFromReport(rep, { by: citizenId, at: iso(at) })).incident_id;
   }
 
-  function cluster({ category, title, texts, point, address, first, spreadHours, count, reporters = [] }) {
+  async function cluster({ category, title, texts, point, address, first, spreadHours, count, reporters = [] }) {
     let id = null;
     for (let i = 0; i < count; i += 1) {
       const at = first + (count === 1 ? 0 : (spreadHours * HOUR * i) / (count - 1));
       const who = reporters[i] ?? nextCitizen();
       const p = i === 0 ? point : jitter(point, 55);
-      id = report(who, { category, text: texts[i % texts.length], point: p, address, at, incidentId: id, method: i % 5 === 3 ? 'OFFICER' : 'AUTO' });
+      id = await report(who, { category, text: texts[i % texts.length], point: p, address, at, incidentId: id, method: i % 5 === 3 ? 'OFFICER' : 'AUTO' });
     }
-    db.prepare('UPDATE incident SET title = ? WHERE incident_id = ?').run(title, id);
-    refreshRecommendations(id);
+    await db.prepare('UPDATE incident SET title = ? WHERE incident_id = ?').run(title, id);
+    await refreshRecommendations(id);
     return id;
   }
 
-  const triageAndAssign = (id, crewName, at, priority) => {
-    const inc = db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(id);
-    classify(id, { priority: priority || inc.priority }, officer, iso(at - 5 * 60000));
-    const crew = db.prepare('SELECT * FROM crew WHERE name = ?').get(crewName);
-    assign(id, { departmentId: crew.department_id, crewId: crew.crew_id }, actor(officer), iso(at));
-    return crewLead(crew.crew_id);
+  const triageAndAssign = async (id, crewName, at, priority) => {
+    const inc = await db.prepare('SELECT * FROM incident WHERE incident_id = ?').get(id);
+    await classify(id, { priority: priority || inc.priority }, officer, iso(at - 5 * 60000));
+    const crew = await db.prepare('SELECT * FROM crew WHERE name = ?').get(crewName);
+    await assign(id, { departmentId: crew.department_id, crewId: crew.crew_id }, await actor(officer), iso(at));
+    return await crewLead(crew.crew_id);
   };
 
   // 1. Deep pothole, Ring Road: 12 reports, Aarav's among them, crew on site.
   const ringRoad = { lat: home.lat + 0.0021, lng: home.lng - 0.0017 };
-  const pothole = cluster({
+  const pothole = await cluster({
     category: 'Pothole', title: 'Deep pothole, Ring Road', point: ringRoad, address: '14 Ring Road, Sector 14',
     texts: ['Deep pothole on Ring Road, roughly a metre wide. Two-wheelers swerving into traffic.', 'Big pothole on Ring Road near the petrol pump',
       'Pothole on Ring Rd getting deeper every day', 'Huge hole in the left lane of Ring Road', 'Ring Road pothole, my scooter almost fell'],
     first: now - 2.6 * DAY, spreadHours: 40, count: 12, reporters: [undefined, undefined, aarav],
   });
-  db.prepare('UPDATE incident SET description = ? WHERE incident_id = ?')
+  await db.prepare('UPDATE incident SET description = ? WHERE incident_id = ?')
     .run('Roughly 1.2 m wide, deepest at the left lane edge. Two-wheelers swerving into traffic.', pothole);
-  const r4 = triageAndAssign(pothole, 'Crew R-4', now - 1.2 * DAY, 'P2');
-  updateProgress(pothole, r4, { stage: 'EN_ROUTE' }, iso(now - 5 * HOUR));
-  updateProgress(pothole, r4, { stage: 'WORKING', note: 'Barricaded the lane, cutting the edges.' }, iso(now - 3 * HOUR));
+  const r4 = await triageAndAssign(pothole, 'Crew R-4', now - 1.2 * DAY, 'P2');
+  await updateProgress(pothole, r4, { stage: 'EN_ROUTE' }, iso(now - 5 * HOUR));
+  await updateProgress(pothole, r4, { stage: 'WORKING', note: 'Barricaded the lane, cutting the edges.' }, iso(now - 3 * HOUR));
 
   // 2. Streetlight on Lakeview Lane: resolved today, 1 of 4 answered.
   const lakeview = { lat: home.lat - 0.0016, lng: home.lng + 0.0024 };
-  const light = cluster({
+  const light = await cluster({
     category: 'Streetlight', title: 'Streetlight out, Lakeview Lane', point: lakeview, address: 'Lakeview Lane, near house no. 22',
     texts: ['Streetlight outside house 22 on Lakeview Lane is not working', 'Street light off at night on Lakeview Ln, very dark',
       'Lakeview Lane streetlight dead for a week'],
     first: now - 5 * DAY, spreadHours: 30, count: 4, reporters: [aarav],
   });
-  const e2 = triageAndAssign(light, 'Crew E-2', now - 3.5 * DAY);
-  updateProgress(light, e2, { stage: 'WORKING' }, iso(now - 1 * DAY));
+  const e2 = await triageAndAssign(light, 'Crew E-2', now - 3.5 * DAY);
+  await updateProgress(light, e2, { stage: 'WORKING' }, iso(now - 1 * DAY));
   const lp = jitter(lakeview, 5);
-  updateProgress(light, e2, {
+  await updateProgress(light, e2, {
     stage: 'RESOLVED', note: 'Replaced the LED fitting and the faulty junction box. Tested after dusk.', latitude: lp.lat, longitude: lp.lng,
   }, iso(now - 19.8 * HOUR));
-  const lightReq = db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ? AND citizen_id != ? LIMIT 1').get(light, aarav);
-  recordResponse(light, lightReq.citizen_id, { fixed: true }, iso(now - 10 * HOUR));
+  const lightReq = await db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ? AND citizen_id != ? LIMIT 1').get(light, aarav);
+  await recordResponse(light, lightReq.citizen_id, { fixed: true }, iso(now - 10 * HOUR));
 
   // 3. Overflowing bin, Sector 9 park: Aarav's, closed 3 weeks ago in 1.5 days.
   const binPoint = { lat: home.lat + 0.004, lng: home.lng + 0.0035 };
-  const bin = cluster({
+  const bin = await cluster({
     category: 'Waste', title: 'Overflowing bin, Sector 9 park', point: binPoint, address: 'Sector 9 park gate',
     texts: ['Garbage bin overflowing at the Sector 9 park gate'], first: now - 21 * DAY, spreadHours: 0, count: 1, reporters: [aarav],
   });
-  const s3 = triageAndAssign(bin, 'Crew S-3', now - 20.8 * DAY);
-  updateProgress(bin, s3, { stage: 'RESOLVED', note: 'Bin emptied and area cleaned.', latitude: binPoint.lat, longitude: binPoint.lng }, iso(now - 19.6 * DAY));
-  recordResponse(bin, aarav, { fixed: true }, iso(now - 19.5 * DAY));
+  const s3 = await triageAndAssign(bin, 'Crew S-3', now - 20.8 * DAY);
+  await updateProgress(bin, s3, { stage: 'RESOLVED', note: 'Bin emptied and area cleaned.', latitude: binPoint.lat, longitude: binPoint.lng }, iso(now - 19.6 * DAY));
+  await recordResponse(bin, aarav, { fixed: true }, iso(now - 19.5 * DAY));
 
   // 4. Officer triage queue (design p.25).
   const ward = (w, dLat, dLng) => { const c = wardCenter(w); return { lat: c.lat + dLat, lng: c.lng + dLng }; };
-  cluster({
+  await cluster({
     category: 'Road collapse', title: 'Road cave-in near school gate', point: ward(9, 0.002, -0.001), address: 'Station Road, near Govt. School No. 4',
     texts: ['Road has caved in right outside the school gate, kids walking around it', 'Big hole opened up on Station Road, a bike almost fell in',
       'Road sinking near Govt School No. 4', 'Dangerous pit, no barricade, please send someone', 'Cave-in on Station Rd, water seeping from below',
       'School road damaged badly', 'Traffic diverted because of hole in road', 'Pit getting bigger, edges breaking', 'Near school gate the road collapsed'],
     first: now - 2 * HOUR, spreadHours: 1.9, count: 9,
   });
-  cluster({
+  await cluster({
     category: 'Water leakage', title: 'Burst water main, flooding lane', point: ward(7, -0.003, 0.002), address: 'Gandhi Nagar, lane 3',
     texts: ['Water main burst, the whole lane is flooding', 'Burst pipe flooding Gandhi Nagar lane 3', 'Water gushing from the road, flooding houses'],
     first: now - 3 * HOUR, spreadHours: 2.5, count: 6,
   });
-  cluster({
+  await cluster({
     category: 'Drainage', title: 'Blocked storm drain', point: ward(12, 0.001, 0.003), address: 'Sector 12 main road',
     texts: ['Storm drain blocked on Sector 12 main road, water stagnant', 'Blocked drain overflowing onto the main road'],
     first: now - 48 * 60000, spreadHours: 0.6, count: 3,
   });
-  cluster({
+  await cluster({
     category: 'Streetlight', title: 'Four streetlights out in a row', point: ward(8, -0.002, -0.002), address: 'Canal Road',
     texts: ['Four streetlights not working in a row on Canal Road', 'Canal Rd completely dark at night, lights off'],
     first: now - 6 * HOUR, spreadHours: 4, count: 5,
   });
-  cluster({
+  await cluster({
     category: 'Waste', title: 'Overflowing community bin', point: { lat: binPoint.lat + 0.0006, lng: binPoint.lng - 0.0005 }, address: 'Sector 9 park, back entrance',
     texts: ['Community bin overflowing at the back of Sector 9 park'], first: now - 2 * HOUR, spreadHours: 0.5, count: 2,
   });
-  cluster({
+  await cluster({
     category: 'Footpath', title: 'Broken footpath slab', point: ward(10, 0.001, 0.001), address: 'Tilak Marg',
     texts: ['Footpath slab broken on Tilak Marg, people tripping'], first: now - 7 * HOUR, spreadHours: 0, count: 1,
   });
-  cluster({
+  await cluster({
     category: 'Public property', title: 'Fallen signboard on divider', point: { lat: ringRoad.lat + 0.003, lng: ringRoad.lng - 0.004 }, address: 'Ring Road divider',
     texts: ['Signboard has fallen on the Ring Road divider'], first: now - 1 * HOUR, spreadHours: 0, count: 1,
   });
-  cluster({
+  await cluster({
     category: 'Water leakage', title: 'Leaking public tap', point: ward(11, -0.004, -0.003), address: 'Old Bazaar',
     texts: ['Public tap leaking in Old Bazaar, water wasted all day'], first: now - 9 * HOUR, spreadHours: 2, count: 2,
   });
 
   // 5. Reopened by citizens: Market St patch failed.
   const market = { lat: home.lat - 0.0035, lng: home.lng - 0.003 };
-  const patch = cluster({
+  const patch = await cluster({
     category: 'Pothole', title: 'Pothole patch failed again', point: market, address: 'Market St, Sector 11',
     texts: ['Pothole on Market Street', 'Market St pothole again after rain'], first: now - 9 * DAY, spreadHours: 20, count: 4,
   });
-  const r1 = triageAndAssign(patch, 'Crew R-4', now - 8 * DAY, 'P2');
-  updateProgress(patch, r1, { stage: 'RESOLVED', note: 'Cold patch applied.', latitude: market.lat, longitude: market.lng }, iso(now - 6 * DAY));
-  const patchReqs = db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ?').all(patch);
-  recordResponse(patch, patchReqs[0].citizen_id, { fixed: false, feedback: 'The patch broke up again after one day of rain.' }, iso(now - 5.5 * DAY));
-  recordResponse(patch, patchReqs[1].citizen_id, { fixed: false, feedback: 'Same hole is back.' }, iso(now - 5.2 * DAY));
+  const r1 = await triageAndAssign(patch, 'Crew R-4', now - 8 * DAY, 'P2');
+  await updateProgress(patch, r1, { stage: 'RESOLVED', note: 'Cold patch applied.', latitude: market.lat, longitude: market.lng }, iso(now - 6 * DAY));
+  const patchReqs = await db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ?').all(patch);
+  await recordResponse(patch, patchReqs[0].citizen_id, { fixed: false, feedback: 'The patch broke up again after one day of rain.' }, iso(now - 5.5 * DAY));
+  await recordResponse(patch, patchReqs[1].citizen_id, { fixed: false, feedback: 'Same hole is back.' }, iso(now - 5.2 * DAY));
 
   // Open manhole, Canal Rd: reopened, near Aarav for the Nearby map.
-  const manhole = cluster({
+  const manhole = await cluster({
     category: 'Drainage', title: 'Open manhole, Canal Rd', point: { lat: home.lat + 0.0018, lng: home.lng + 0.0016 }, address: 'Canal Road, Sector 14',
     texts: ['Open manhole on Canal Road, no cover', 'Manhole cover missing, dangerous at night'], first: now - 6 * DAY, spreadHours: 10, count: 2,
   });
-  const d3 = triageAndAssign(manhole, 'Crew D-3', now - 5.5 * DAY, 'P1');
-  updateProgress(manhole, d3, { stage: 'RESOLVED', note: 'Temporary cover placed.' }, iso(now - 4 * DAY));
-  const mReqs = db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ?').all(manhole);
-  recordResponse(manhole, mReqs[0].citizen_id, { fixed: false, feedback: 'The temporary cover already moved, still open.' }, iso(now - 3.5 * DAY));
+  const d3 = await triageAndAssign(manhole, 'Crew D-3', now - 5.5 * DAY, 'P1');
+  await updateProgress(manhole, d3, { stage: 'RESOLVED', note: 'Temporary cover placed.' }, iso(now - 4 * DAY));
+  const mReqs = await db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ?').all(manhole);
+  await recordResponse(manhole, mReqs[0].citizen_id, { fixed: false, feedback: 'The temporary cover already moved, still open.' }, iso(now - 3.5 * DAY));
 
   // 6. Officer verification queue: no reporter answered in 72 h.
   const queue = [
@@ -500,27 +494,27 @@ function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, c
     ['Public property', 'Broken bench at bus stop', 'Tilak Marg', ward(10, -0.002, 0.002), 'Crew P-2', 1, 'Bench slats replaced and bolted.'],
   ];
   for (const [category, title, address, point, crewName, count, note] of queue) {
-    const id = cluster({ category, title, point, address, texts: [`${title}`], first: now - 8 * DAY, spreadHours: 6, count });
-    const w = triageAndAssign(id, crewName, now - 7 * DAY);
+    const id = await cluster({ category, title, point, address, texts: [`${title}`], first: now - 8 * DAY, spreadHours: 6, count });
+    const w = await triageAndAssign(id, crewName, now - 7 * DAY);
     const pp = jitter(point, 4);
-    updateProgress(id, w, { stage: 'RESOLVED', note, latitude: pp.lat, longitude: pp.lng }, iso(now - 75 * HOUR));
-    evaluateVerification(id, { at: iso(now - 3 * HOUR) });
+    await updateProgress(id, w, { stage: 'RESOLVED', note, latitude: pp.lat, longitude: pp.lng }, iso(now - 75 * HOUR));
+    await evaluateVerification(id, { at: iso(now - 3 * HOUR) });
   }
 
   // 7. More live work for Crew R-4 and the Roads board.
-  const cave = cluster({
+  const cave = await cluster({
     category: 'Road markings', title: 'Faded speed-breaker marking', point: { lat: lakeview.lat - 0.001, lng: lakeview.lng + 0.001 }, address: 'Lakeview Lane',
     texts: ['Speed breaker on Lakeview Lane has no paint, bikes hit it at speed'], first: now - 6 * DAY, spreadHours: 0, count: 1,
   });
-  triageAndAssign(cave, 'Crew R-4', now - 5 * DAY);
-  const sunk = cluster({
+  await triageAndAssign(cave, 'Crew R-4', now - 5 * DAY);
+  const sunk = await cluster({
     category: 'Damaged road', title: 'Sunken manhole cover', point: ward(7, 0.001, -0.003), address: 'Ring Road, Ward 7',
     texts: ['Manhole cover sunk below the road level on Ring Road'], first: now - 1.2 * DAY, spreadHours: 0, count: 1,
   });
-  triageAndAssign(sunk, 'Crew R-1', now - 1 * DAY);
+  await triageAndAssign(sunk, 'Crew R-1', now - 1 * DAY);
 
   // 8. Match review queue: reports the engine was unsure about.
-  const titled = (t) => db.prepare('SELECT * FROM incident WHERE title = ? ORDER BY incident_id DESC').get(t);
+  const titled = async (t) => await db.prepare('SELECT * FROM incident WHERE title = ? ORDER BY incident_id DESC').get(t);
   const reviews = [
     ['Deep pothole, Ring Road', 'Pothole', 'Road broken outside HP petrol pump, my scooter tyre burst', 125, 14],
     ['Burst water main, flooding lane', 'Water leakage', 'Water on road in Gandhi Nagar since morning', 120, 22],
@@ -529,21 +523,67 @@ function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, c
     ['Pothole patch failed again', 'Pothole', 'Road broken near temple, big hole with stones lying around', 160, 180],
   ];
   for (const [title, category, text, meters, minsAgo] of reviews) {
-    const inc = titled(title);
+    const inc = await titled(title);
     const p = { lat: inc.latitude + meters / 111320, lng: inc.longitude };
-    const out = submitReport(nextCitizen(), { description: text, category_id: catId[category], latitude: p.lat, longitude: p.lng, address: inc.address }, { at: iso(now - minsAgo * 60000) });
+    const out = await submitReport(nextCitizen(), { description: text, category_id: catId[category], latitude: p.lat, longitude: p.lng, address: inc.address }, { at: iso(now - minsAgo * 60000) });
     if (out.decision !== 'REVIEW') console.warn(`seed: expected a match review for "${text}", engine said ${out.decision} (${out.score})`);
   }
 
   // Aarav's notifications from the design, newest unread.
-  db.prepare('UPDATE notification SET is_read = 1 WHERE user_id = ? AND created_at < ?').run(aarav, iso(now - 1.5 * DAY));
+  await db.prepare('UPDATE notification SET is_read = 1 WHERE user_id = ? AND created_at < ?').run(aarav, iso(now - 1.5 * DAY));
+}
+
+// Copies every table from one connection to another (replacing what the
+// target had), then moves the id sequences past the copied rows.
+async function copyAll(from, to) {
+  await to.transaction(async (t) => {
+    await t.exec(`TRUNCATE ${TABLES.map((x) => `"${x}"`).join(', ')} RESTART IDENTITY CASCADE`);
+    for (const table of TABLES) {
+      const { rows } = await from.query(`SELECT * FROM "${table}"`);
+      if (!rows.length) continue;
+      const cols = Object.keys(rows[0]);
+      const perBatch = Math.floor(30000 / cols.length);
+      for (let i = 0; i < rows.length; i += perBatch) {
+        const batch = rows.slice(i, i + perBatch);
+        const params = [];
+        const values = batch.map((row) => `(${cols.map((c) => { params.push(row[c]); return `$${params.length}`; }).join(', ')})`);
+        await t.query(`INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${values.join(', ')}`, params);
+      }
+    }
+    const { rows: seqs } = await t.query(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND is_identity = 'YES'`
+    );
+    for (const { table_name: table, column_name: col } of seqs) {
+      await t.query(
+        `SELECT setval(pg_get_serial_sequence('"${table}"', '${col}'), m) FROM (SELECT MAX("${col}") m FROM "${table}") x WHERE m IS NOT NULL`
+      );
+    }
+  });
+}
+
+// Seeds the open database. A remote Postgres (Neon) is filled by building
+// the data in an in-memory database first and copying it over in bulk,
+// which takes seconds instead of thousands of network round trips.
+export async function seedDatabase(options = {}) {
+  const target = await ready();
+  if (target.kind === 'pglite') return seed(options);
+  const memory = await connect(':memory:');
+  try {
+    const counts = await withConnection(memory, () => seed(options));
+    await copyAll(memory, target);
+    return counts;
+  } finally {
+    await memory.close();
+  }
 }
 
 // CLI: node src/seed.js
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  openDb();
+  await openDb();
   const t = Date.now();
-  const counts = seed();
+  const counts = await seedDatabase();
   console.log(`Seeded ${counts.incidents} incidents, ${counts.reports} reports, ${counts.users} users in ${Date.now() - t} ms.`);
   console.log(`Staff password for every demo account: ${DEMO_PASSWORD}`);
+  await (await ready()).close();
 }

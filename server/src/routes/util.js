@@ -1,31 +1,22 @@
 import multer from 'multer';
-import path from 'node:path';
-import fs from 'node:fs';
-import crypto from 'node:crypto';
-import { UPLOAD_DIR } from '../db.js';
 import { HttpError } from '../services/incidents.js';
+import { deletePhoto, storePhoto } from '../services/storage.js';
 
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: UPLOAD_DIR,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '') || '.jpg';
-    cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
-  },
-});
-
-// One image, max 8 MB.
+// One image, max 8 MB (4 MB on Vercel, whose request limit is 4.5 MB),
+// kept in memory until the request is valid enough to store it.
+const MAX_MB = Number(process.env.MAX_PHOTO_MB || (process.env.VERCEL ? 4 : 8));
 export const photoUpload = multer({
-  storage,
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_MB * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     if (/^image\/(jpeg|png|webp|gif|heic|heif)$/.test(file.mimetype)) cb(null, true);
     else cb(new HttpError(422, 'Photos must be JPEG, PNG, WebP or HEIC images.'));
   },
 }).single('photo');
+export const MAX_PHOTO_MB = MAX_MB;
 
-export const photoUrlOf = (req) => (req.file ? `/uploads/${req.file.filename}` : null);
+export const savePhoto = (req) => (req.file ? storePhoto(req.file) : Promise.resolve(null));
+export const discardPhoto = deletePhoto;
 
 // Wraps a handler so thrown errors reach the error middleware.
 export const h = (fn) => (req, res, next) => {
@@ -39,6 +30,6 @@ export const h = (fn) => (req, res, next) => {
 
 export const intParam = (v) => {
   const n = Number(String(v).replace(/^(INC|RPT)-/i, ''));
-  if (!Number.isInteger(n) || n <= 0) throw new HttpError(404, "We can't find that.", 'NOT_FOUND');
+  if (!Number.isInteger(n) || n <= 0 || n > 2147483647) throw new HttpError(404, "We can't find that.", 'NOT_FOUND');
   return n;
 };
