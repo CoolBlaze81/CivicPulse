@@ -8,7 +8,8 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "seed": "node src/seed.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "build": "echo \"API has no build step\""
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -17,7 +18,7 @@
     "express": "^4.21.2",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.4.0",
     "pg": "^8.23.0"
   }
 }
