@@ -3,10 +3,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, formOf } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { getLocation, useApi } from '../lib/hooks.js';
+import { DEMO_AREA, getLocation, useApi } from '../lib/hooks.js';
 import { meters } from '../lib/format.js';
 import { Spinner, StatusPill, Toast } from '../components/ui.jsx';
 import MapView from '../components/MapView.jsx';
+import { MapArt } from '../components/Illustrations.jsx';
 
 // Filter chips group categories the way citizens think about them.
 const FILTERS = {
@@ -69,7 +70,7 @@ export default function Nearby() {
       </div>
       </div>
       <div>
-      {here.source === 'demo' && <div className="banner demo small">Showing the demo neighbourhood (Sector 14, MetroServe) because your device is {here.reason === 'outside' ? 'outside the demo city' : 'not sharing its location'}.</div>}
+      {here.source === 'demo' && <div className="banner demo small">Showing the demo neighbourhood ({DEMO_AREA}) because your device is {here.reason === 'outside' ? 'outside North Delhi' : 'not sharing its location'}.</div>}
       <div className="row chip-scroll" style={{ gap: 8, paddingBottom: 4 }}>
         {Object.keys(FILTERS).map((f) => (
           <button type="button" key={f} className={`chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{f}</button>
@@ -80,7 +81,12 @@ export default function Nearby() {
         <span className="small muted">Pin number = reports</span>
       </div>
       {!data ? <Spinner /> : list.length === 0 ? (
-        <p className="muted">Nothing open nearby. <Link to="/report/new">Report an issue</Link></p>
+        <div className="card stack center empty-card">
+          <MapArt />
+          <h3>{filter === 'All' ? 'Nothing open within 1 km' : `No ${filter.toLowerCase()} problems open nearby`}</h3>
+          <p className="muted">Spotted something? You could be the first to report it.</p>
+          <Link to="/report/new" className="btn primary">Report an issue</Link>
+        </div>
       ) : (
         <div className="stack">
           {[...list].sort((a, b) => (a.incident_id === selected ? -1 : b.incident_id === selected ? 1 : 0)).map((i) => (

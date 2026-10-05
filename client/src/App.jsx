@@ -34,6 +34,9 @@ import Resources from './staff/Resources.jsx';
 import Departments from './staff/Departments.jsx';
 import Users from './staff/Users.jsx';
 import StaffNotifications from './staff/Notifications.jsx';
+import Overview from './staff/Overview.jsx';
+import Account from './staff/Account.jsx';
+import Activity from './staff/Activity.jsx';
 
 // Only lets the given roles in; others see the 403 page (design p.34).
 function Guard({ roles, children }) {
@@ -89,8 +92,11 @@ export default function App() {
       <Route path="/field/jobs/:id" element={field(<Job />, { tabs: false })} />
       <Route path="/field/jobs/:id/done" element={field(<JobDone />, { tabs: false })} />
       <Route path="/field/alerts" element={field(<FieldAlerts />)} />
+      <Route path="/field/account" element={field(<Account />)} />
 
-      <Route path="/officer" element={staff(['OFFICER'], <Incidents />)} />
+      <Route path="/officer" element={staff(['OFFICER'], <Overview />)} />
+      <Route path="/officer/incidents" element={staff(['OFFICER'], <Incidents />)} />
+      <Route path="/officer/account" element={staff(['OFFICER'], <Account />)} />
       <Route path="/officer/incidents/:id" element={staff(['OFFICER'], <IncidentDetail />)} />
       <Route path="/officer/match-review" element={staff(['OFFICER'], <MatchReview />)} />
       <Route path="/officer/verification" element={staff(['OFFICER'], <Verification />)} />
@@ -104,12 +110,15 @@ export default function App() {
       <Route path="/dept/incidents/:id" element={staff(['DEPT_HEAD'], <IncidentDetail />)} />
       <Route path="/dept/analytics" element={staff(['DEPT_HEAD'], <Analytics />)} />
       <Route path="/dept/notifications" element={staff(['DEPT_HEAD'], <StaffNotifications />)} />
+      <Route path="/dept/account" element={staff(['DEPT_HEAD'], <Account />)} />
 
       <Route path="/admin" element={staff(['ADMIN'], <Analytics />)} />
       <Route path="/admin/departments" element={staff(['ADMIN'], <Departments />)} />
       <Route path="/admin/incidents" element={staff(['ADMIN'], <Incidents mode="all" />)} />
       <Route path="/admin/incidents/:id" element={staff(['ADMIN'], <IncidentDetail />)} />
       <Route path="/admin/users" element={staff(['ADMIN'], <Users />)} />
+      <Route path="/admin/activity" element={staff(['ADMIN'], <Activity />)} />
+      <Route path="/admin/account" element={staff(['ADMIN'], <Account />)} />
 
       <Route path="/session-expired" element={<SessionExpired />} />
       <Route path="*" element={<NotFound />} />

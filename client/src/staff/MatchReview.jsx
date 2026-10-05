@@ -1,9 +1,10 @@
 // Match review: reports the engine wasn't sure about (design p.26, BR-12).
 import { useState } from 'react';
 import { api } from '../api.js';
-import { useApi, useToast } from '../lib/hooks.js';
+import { useApi, useNarrow, useToast } from '../lib/hooks.js';
 import { meters, timeAgo, when, STATUS_LABEL } from '../lib/format.js';
 import { Icon, Photo, ErrorNote, Spinner, Toast } from '../components/ui.jsx';
+import { AllClearArt } from '../components/Illustrations.jsx';
 import MapView from '../components/MapView.jsx';
 
 export default function MatchReview() {
@@ -13,6 +14,7 @@ export default function MatchReview() {
   const [showOther, setShowOther] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
+  const narrow = useNarrow();
   if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
   const m = data.find((x) => x.review_id === selectedId) || data[0];
 
@@ -44,31 +46,31 @@ export default function MatchReview() {
       </div>
       {data.length === 0 ? (
         <div className="panel empty">
-          <div className="done-icon"><Icon name="check" size={30} /></div>
+          <AllClearArt />
           <h3>No matches to review</h3>
           <p className="muted">Reports scoring 90% or more link automatically; below 60% they open a new incident. Anything in between shows up here.</p>
         </div>
       ) : (
-        <div className="split" style={{ gridTemplateColumns: '360px minmax(0, 1fr)' }}>
-          <div className="panel">
+        <div className={narrow ? 'stack' : 'split'} style={narrow ? undefined : { gridTemplateColumns: '340px minmax(0, 1fr)' }}>
+          <div className={`panel ${narrow ? 'queue-scroll' : ''}`}>
             {data.map((x) => (
-              <div key={x.review_id} className={`queue-item ${x.review_id === m.review_id ? 'selected' : ''}`} onClick={() => setSelectedId(x.review_id)}>
+              <button type="button" key={x.review_id} className={`queue-item ${x.review_id === m.review_id ? 'selected' : ''}`} onClick={() => setSelectedId(x.review_id)}>
                 <div className="grow stack tight" style={{ gap: 3 }}>
                   <div className="row between"><span className="mono small">{x.report_code}</span><span className="score-badge">{Math.round(x.score * 100)}%</span></div>
                   <b className="truncate">{x.description}</b>
                   <span className="small muted">→ <span className="mono">{x.incident_code}</span> · {meters(x.signals.distance_m)} · {timeAgo(x.submitted_at)} ago</span>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
 
           <div className="panel">
             <div className="panel-body">
-              <div className="row between wrap">
-                <h2>Is this new report the same problem?</h2>
-                <div className="row"><span className="confidence">{Math.round(m.score * 100)}%</span><span className="small muted" style={{ maxWidth: 110 }}>match confidence · auto-link at 90%</span></div>
+              <div className="row between wrap" style={{ gap: 12 }}>
+                <h2 style={{ fontSize: narrow ? 20 : undefined }}>Is this new report the same problem?</h2>
+                <div className="row" style={{ gap: 10 }}><span className="confidence">{Math.round(m.score * 100)}%</span><span className="small muted" style={{ maxWidth: 130 }}>match confidence · auto-link at 90%</span></div>
               </div>
-              <div className="row" style={{ alignItems: 'stretch', gap: 16 }}>
+              <div className="compare">
                 <div className="card grow stack tight">
                   <span className="eyebrow">New report · {m.report_code}</span>
                   <Photo src={m.photo_url} style={{ height: 110 }} />
@@ -105,10 +107,10 @@ export default function MatchReview() {
                   <button type="button" className="btn primary" disabled={busy || !other.trim()} onClick={() => decide('OTHER')}>Link</button>
                 </div>
               )}
-              <div className="row wrap">
-                <button type="button" className="btn ghost" onClick={() => setShowOther(!showOther)}>Link to another…</button>
+              <div className="decide-row">
+                <button type="button" className="btn primary" disabled={busy} onClick={() => decide('LINK')}>Link to {m.incident_code}</button>
                 <button type="button" className="btn outline" disabled={busy} onClick={() => decide('NEW_INCIDENT')}>Create new incident</button>
-                <button type="button" className="btn primary grow" disabled={busy} onClick={() => decide('LINK')}>Link to {m.incident_code}</button>
+                <button type="button" className="btn ghost" onClick={() => setShowOther(!showOther)}>Link to another…</button>
               </div>
             </div>
           </div>

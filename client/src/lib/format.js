@@ -79,3 +79,10 @@ export function initials(name = '') {
 }
 
 export const pct = (n) => (n == null ? '—' : `${Math.round(n * 100)}%`);
+
+// North Delhi localities, matching the ward grid in the API (server/src/seed.js).
+export const WARD_NAMES = {
+  1: 'Jahangirpuri', 2: 'Adarsh Nagar', 3: 'Model Town', 4: 'Mukherjee Nagar', 5: 'Wazirpur', 6: 'Azadpur',
+  7: 'GTB Nagar', 8: 'Timarpur', 9: 'Keshav Puram', 10: 'Ashok Vihar', 11: 'Kamla Nagar', 12: 'Civil Lines',
+};
+export const wardLabel = (w) => (w ? `Ward ${w}${WARD_NAMES[w] ? ` · ${WARD_NAMES[w]}` : ''}` : '');

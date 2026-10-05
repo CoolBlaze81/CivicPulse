@@ -5,7 +5,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ROLE_HOME } from '../lib/format.js';
-import { Brand } from '../components/ui.jsx';
+import { Brand, Icon } from '../components/ui.jsx';
 import { PhoneShell } from './Layout.jsx';
 
 const STEPS = ['Snap a photo, drop a pin', 'We join you with neighbours who saw it too', 'You confirm the fix before it’s closed'];
@@ -151,22 +151,31 @@ export default function CitizenLogin() {
   return (
     <LoginFrame intro>
       <div className="stack loose">
-        <h2 className="desk-show">Sign in with your mobile</h2>
+        <div className="stack tight">
+          <h2>Sign in with your mobile</h2>
+          <p className="muted small">Report problems on your street in North Delhi and follow them until they're fixed.</p>
+        </div>
         <form className="stack" onSubmit={send}>
           <label className="field">
             Mobile number
             <div className="row">
               <span className="input" style={{ width: 70, display: 'grid', placeItems: 'center' }}>+91</span>
-              <input className="input" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" />
+              <input className="input" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Your 10-digit mobile number" />
             </div>
             <span className="hint">We’ll send a 6-digit code. New here? This creates your account.</span>
           </label>
           {error && <p className="error-text" role="alert">{error}</p>}
           <button className="btn primary lg block" disabled={busy || phone.replace(/\D/g, '').length < 10}>Send code</button>
         </form>
-        <p className="center small muted">
-          Demo citizen: 98765 43210 · <Link to="/staff/login">Municipal staff? Sign in with staff ID</Link>
-        </p>
+        <div className="or-divider"><span>or</span></div>
+        <Link to="/staff/login" className="staff-entry">
+          <span className="staff-entry-icon"><Icon name="building" size={22} /></span>
+          <span className="grow stack tight" style={{ gap: 1 }}>
+            <b>Municipal staff sign in</b>
+            <span className="small muted">Officers, departments, field crews and admins</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
       </div>
     </LoginFrame>
   );

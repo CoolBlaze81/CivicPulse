@@ -22,6 +22,7 @@ export async function validateReport(input, { hasPhoto = false, requirePhoto = f
   const catId = Number(input.category_id);
   const cat = Number.isInteger(catId) && catId > 0 && (await getDb().prepare('SELECT 1 FROM category WHERE category_id = ?').get(catId));
   if (!cat) problems.push({ field: 'category', message: 'Choose what kind of problem this is.' });
+  if (String(input.address || '').trim().length > 200) problems.push({ field: 'address', message: 'Keep the address under 200 characters.' });
   if (requirePhoto && !hasPhoto) problems.push({ field: 'photo', message: 'Add a photo of the problem.' });
   return problems;
 }
@@ -55,7 +56,9 @@ export async function previewMatch(input) {
 // Otherwise the matching engine decides: >= 90% auto-link, 60-90% officer
 // review (report waits unlinked), else a new incident.
 export async function submitReport(citizenId, input, { photoUrl = null, requirePhoto = false, at = nowIso() } = {}) {
-  const problems = await validateReport(input, { hasPhoto: !!photoUrl, requirePhoto });
+  // "I see it too" joins an incident that already has photos, so it doesn't
+  // need one of its own.
+  const problems = await validateReport(input, { hasPhoto: !!photoUrl, requirePhoto: requirePhoto && !input.join_incident_id });
   if (problems.length) {
     const err = new HttpError(422, `${problems.length} thing${problems.length > 1 ? 's' : ''} to fix before we can send this.`, 'VALIDATION');
     err.problems = problems;
@@ -79,6 +82,8 @@ export async function submitReport(citizenId, input, { photoUrl = null, requireP
     if (input.join_incident_id) {
       const target = await requireIncident(Number(input.join_incident_id));
       if (target.status === 'CLOSED') throw new HttpError(409, `${incidentCode(target.incident_id)} is already closed. Submit this as a new report.`);
+      const already = await db.prepare('SELECT 1 FROM report WHERE incident_id = ? AND citizen_id = ?').get(target.incident_id, citizenId);
+      if (already) throw new HttpError(409, `You have already reported ${incidentCode(target.incident_id)}. We'll keep you updated on it.`, 'ALREADY_REPORTED');
       const { best } = await evaluate(report, {});
       const score = best?.incident.incident_id === target.incident_id ? best.score : null;
       await attachReport(reportId, target.incident_id, { method: 'CITIZEN', score, by: citizenId, at });

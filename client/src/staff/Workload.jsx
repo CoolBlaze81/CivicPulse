@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
 import { timeAgo } from '../lib/format.js';
 import { Meter, Priority, ErrorNote, Spinner } from '../components/ui.jsx';
+import { WARD_NAMES } from '../lib/format.js';
 
 function JobCard({ i, sub }) {
   return (
@@ -42,7 +43,7 @@ export default function Workload() {
         <div className="kpi"><span className="muted">Overdue</span><b>{summary.overdue}</b></div>
         <div className="kpi"><span className="muted">Avg. to resolve (30 d)</span><b>{summary.avg_resolve_days ?? '—'}{summary.avg_resolve_days != null && <small style={{ fontSize: 18 }}> d</small>}</b></div>
       </div>
-      <div className="board">
+      <div className="board scroll-x">
         {cols.map(([label, items, sub]) => (
           <div key={label} className="col">
             <div className="col-head"><span>{label}</span><span className="muted">{items.length}</span></div>
@@ -58,7 +59,7 @@ export default function Workload() {
             {crews.map((c) => (
               <div key={c.crew_id} className="kpi" style={{ opacity: c.availability === 'ON_DUTY' ? 1 : 0.55 }}>
                 <div className="row between"><b style={{ fontSize: 17, margin: 0 }}>{c.name}</b><span className="mono small">{c.load}/{c.max_load}</span></div>
-                <span className="small muted">Wards {c.zone.replaceAll(',', ', ')}{c.availability !== 'ON_DUTY' ? ` · ${c.availability.replace('_', ' ').toLowerCase()}` : ''}</span>
+                <span className="small muted">{c.zone.split(',').map((w) => WARD_NAMES[Number(w)] || `W${w}`).join(', ')}{c.availability !== 'ON_DUTY' ? ` · ${c.availability.replace('_', ' ').toLowerCase()}` : ''}</span>
                 <div style={{ marginTop: 8 }}><Meter load={c.load} max={c.max_load} /></div>
               </div>
             ))}

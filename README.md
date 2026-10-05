@@ -1,6 +1,6 @@
 # CivicPulse
 
-Intelligent civic issue management prototype for the fictional **MetroServe Municipal Operations Authority (MSMO)**.
+Intelligent civic issue management prototype for the fictional **MetroServe Municipal Operations Authority (MSMO)**, covering **North Delhi** (12 wards from Jahangirpuri to Civil Lines).
 Every report finds its incident. Every incident is tracked until a citizen says it's fixed.
 
 Built from the project documents: Problem Statement, SRS v1.1 (FR-01 to FR-63, BR-01 to BR-12),
@@ -31,18 +31,20 @@ The repository is ready for Vercel: `vercel.json` builds the React app as static
 
 1. On vercel.com, **Add New > Project** and import this GitHub repository. Keep the defaults and don't deploy yet if it asks for settings.
 2. In the project, open **Storage** and add **Neon** (Postgres). Connect it to the project; this sets `DATABASE_URL`.
-3. Still in **Storage**, create a **Blob** store and connect it; this sets `BLOB_READ_WRITE_TOKEN`.
+3. Optional: in **Storage**, create a **Blob** store and connect it (`BLOB_READ_WRITE_TOKEN`). Without it, photos are kept in Neon and served by the API, which also works.
 4. In **Settings > Environment Variables**, add `JWT_SECRET` with a long random value (for example the output of `openssl rand -hex 32`).
 5. **Deployments > Redeploy.** The first request after deploying loads the demo data into Neon, so the first page load takes about half a minute.
 
 | Variable | Needed | What it does |
 |---|---|---|
 | `DATABASE_URL` | on Vercel | Postgres connection string (Neon sets it). Without it the embedded database in `server/data` is used. |
-| `BLOB_READ_WRITE_TOKEN` | on Vercel | Photo storage. Without it photos are saved in `server/uploads`. |
+| `BLOB_READ_WRITE_TOKEN` | no | Photo storage in Vercel Blob. Without it (or if Blob fails) photos are kept in the database and served from `/api/photos/<id>`. |
 | `JWT_SECRET` | on Vercel | Signs sign-in sessions. Required whenever `NODE_ENV=production`. |
 | `VERIFICATION_WINDOW_HOURS` | no | Citizen verification window, default 72. |
 | `DEMO_MODE` | no | Set to `0` to hide the "End window now" demo button. |
 | `GEOCODE` | no | Set to `0` to turn off address lookup from GPS. |
+| `DEMO_RESEED` | no | Set to `0` to stop the server reloading the demo data when it is older than the current version. |
+| `REPORTS_PER_HOUR` | no | How many reports one citizen may send an hour, default 10. |
 
 To reset the hosted demo data, run `npm run seed` on your computer with `DATABASE_URL` set to the Neon connection string. It builds the data locally and copies it over in a few seconds.
 
@@ -50,7 +52,7 @@ To reset the hosted demo data, run `npm run seed` on your computer with `DATABAS
 
 | Role | Sign in at | ID | Password |
 |---|---|---|---|
-| Citizen (Aarav Mehta) | `/login` | phone `98765 43210` | the 6-digit code is shown on screen |
+| Citizen (Aarav Mehta) | `/login` | phone `98765 43210` (not shown in the app) | the 6-digit code is shown on screen |
 | Officer (R. Kapoor, wards 7 to 12) | `/staff/login` | `OFF-101` | `civicpulse` |
 | Officer (N. Iyer, wards 1 to 6) | `/staff/login` | `OFF-102` | `civicpulse` |
 | Department head, Roads & Highways | `/staff/login` | `DEP-ROADS` (also `DEP-WASTE`, `DEP-ELEC`, `DEP-WATER`, `DEP-WORKS`) | `civicpulse` |
@@ -69,6 +71,16 @@ Any other 10-digit mobile number creates a new citizen account.
 6. **Officer**: *Verification* lists incidents where nobody answered in 72 h. Close one as officer-verified or reopen it. *End window now (demo)* on an incident skips the 72-hour wait.
 7. **Department head** `DEP-ROADS`: workload board, crews and equipment, and the categories the department handles (this drives department recommendations).
 8. **Admin** `ADM-001`: city analytics (reports per incident, median time to close, reopen rate, duplicates avoided, department workload, by ward).
+
+## What each person sees
+
+- **Citizen** (phone-first, works on a computer too): home with a report button, category shortcuts, their reports, what is happening within 1.5 km, how North Delhi did in the last 30 days and recently fixed problems nearby; a map of open problems with "I see it too"; the report form (photo required, GPS address filled in, duplicate warning before sending, offline queue); updates grouped by day with an icon per kind; a profile with a picture, their impact and account controls.
+- **Officer**: an overview of the four queues (triage, match review, needs a crew, officer check) with the most urgent open incidents; the incident list with tabs and search; the incident page in tabs (overview, linked reports, assign, history); match review; the verification queue; analytics; alerts; their own account.
+- **Department head**: the workload board (a sideways-swiping board on phones), crews and equipment, the categories they handle, every incident in their department, their own reports and account.
+- **Field crew**: today's jobs with distance, the job page with directions, progress stages and resolution proof, alerts, and their own account.
+- **Municipal admin**: city analytics, departments, every incident, staff accounts (create, reset a password, switch an account off, unlock) and an activity log.
+
+Every screen is built for phones first and widens to a full-width desktop layout; staff screens swap the navy sidebar for a top bar with a slide-out menu under 800 px, and wide tables become cards instead of scrolling sideways.
 
 ## How it works
 
@@ -112,15 +124,16 @@ When a crew marks an incident resolved, every citizen with a linked report is as
 | Citizen login | Design: SMS code. SRS 2.5: SMS out of scope | Phone + 6-digit code shown on screen ("demo mode") |
 | Report waiting for match review | Not specified | Report stays unlinked ("Being checked") until an officer decides |
 | Citizen taps "Add my report to it" | ER link_method has AUTO / OFFICER / NEW | Added a `CITIZEN` link method so analytics can tell them apart |
-| Wards | Not in ER | `incident.ward` from a 12-ward grid over the demo city |
+| Wards | Not in ER | `incident.ward` from a 12-ward grid over North Delhi |
 | Who assigns crews | SRS: officer. Design p.31: department board shows "needs a crew" | Officers assign anywhere; department heads can assign crews in their own department |
 | Staff login lockout | Design p.28 | 5 wrong passwords lock the account for 15 minutes; admins can unlock |
 | Offline queue | Design p.16 only | Built: a report written offline is saved on the phone with its photo and sent when the connection returns, keeping the time it was written |
 | Address | Citizens type a landmark | Filled in from the GPS point (OpenStreetMap), and the citizen can edit it |
+| Where the demo is set | Not specified | North Delhi: a 4 x 3 ward grid around GTB Nagar, with real locality and street names |
 
 ## Not in this prototype
 
-Real SMS or email and image similarity. Map tiles and fonts load from the internet.
+Real SMS or email, and image similarity. Map tiles and fonts load from the internet. Profile pictures and report photos are kept in the database unless a Vercel Blob store is connected.
 
 ## Security
 
@@ -130,3 +143,8 @@ Real SMS or email and image similarity. Map tiles and fonts load from the intern
 - Security headers (Content-Security-Policy, HSTS on Vercel, nosniff, no framing) via helmet and `vercel.json`.
 - A production server refuses to start without `JWT_SECRET`.
 - Role checks on every staff endpoint (FR-04, FR-07); department heads only act inside their department.
+- Sessions can be ended: changing a password, "sign out on all devices", deleting an account or an admin switching an account off invalidates the tokens already issued.
+- Staff can change their own password (8+ characters with a letter and a number); admins can reset one and switch an account off, and neither can lock the last admin out.
+- Uploads are checked by their first bytes, not the name or the type the browser claims, so a file that is not really an image is refused.
+- One citizen can send at most 10 reports an hour, and can join a given incident only once.
+- Sign-ins, failed sign-ins, locked accounts and account changes are written to an activity log admins can read.

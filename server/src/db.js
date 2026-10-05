@@ -207,7 +207,45 @@ CREATE TABLE IF NOT EXISTS notification (
   created_at TEXT NOT NULL
 );
 
+-- Added after the first release: columns use IF NOT EXISTS so an existing
+-- database (Neon) is upgraded in place on the next start.
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS disabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_login_at TEXT;
+
+-- Photos kept in the database when no Vercel Blob store is configured.
+CREATE TABLE IF NOT EXISTS photo (
+  photo_id TEXT PRIMARY KEY,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  data BYTEA NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Who did what: sign-ins, account changes and admin actions.
+CREATE TABLE IF NOT EXISTS audit_log (
+  audit_id ${ID},
+  user_id INTEGER REFERENCES "user"(user_id),
+  action TEXT NOT NULL,
+  detail TEXT,
+  ip TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Small key/value settings, e.g. which version of the demo data is loaded.
+CREATE TABLE IF NOT EXISTS app_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_report_incident ON report(incident_id);
+CREATE INDEX IF NOT EXISTS idx_report_submitted ON report(submitted_at);
+CREATE INDEX IF NOT EXISTS idx_incident_opened ON incident(opened_at);
+CREATE INDEX IF NOT EXISTS idx_incident_closed ON incident(closed_at);
+CREATE INDEX IF NOT EXISTS idx_match_review_open ON match_review(decision);
+CREATE INDEX IF NOT EXISTS idx_verification_citizen ON verification_request(citizen_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_report_citizen ON report(citizen_id);
 CREATE INDEX IF NOT EXISTS idx_incident_status ON incident(status);
 CREATE INDEX IF NOT EXISTS idx_incident_geo ON incident(latitude, longitude);
@@ -225,7 +263,7 @@ CREATE OR REPLACE FUNCTION julianday(t TEXT) RETURNS DOUBLE PRECISION
 export const TABLES = [
   'department', 'category', 'department_category', 'crew', 'equipment', 'user', 'otp_code',
   'incident', 'report', 'match_review', 'status_history', 'assignment', 'work_update',
-  'verification_request', 'notification',
+  'verification_request', 'notification', 'photo', 'audit_log',
 ];
 
 // ---- placeholders ------------------------------------------------------

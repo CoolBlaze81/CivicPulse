@@ -13,22 +13,22 @@ function CrewRow({ c, onSave }) {
   if (!edit) {
     return (
       <tr>
-        <td className="bold">{c.name}</td><td>{c.members}</td><td>{c.skills}</td><td>Wards {c.zone.replaceAll(',', ', ')}</td>
-        <td><span className={`pill ${c.availability === 'ON_DUTY' ? 'CLOSED' : c.availability === 'ON_LEAVE' ? 'REOPENED' : 'REPORTED'}`}>{AVAIL[c.availability]}</span></td>
-        <td className="mono">{c.load}/{c.max_load}</td>
-        <td><button type="button" className="link-btn" onClick={() => { setF(c); setEdit(true); }}>Edit</button></td>
+        <td className="bold cell-main">{c.name}</td><td data-label="Members">{c.members}</td><td data-label="Skills">{c.skills}</td><td data-label="Wards">{c.zone.replaceAll(',', ', ')}</td>
+        <td data-label="Availability"><span className={`pill ${c.availability === 'ON_DUTY' ? 'CLOSED' : c.availability === 'ON_LEAVE' ? 'REOPENED' : 'REPORTED'}`}>{AVAIL[c.availability]}</span></td>
+        <td data-label="Load" className="mono">{c.load}/{c.max_load}</td>
+        <td className="cell-action"><button type="button" className="btn ghost sm" onClick={() => { setF(c); setEdit(true); }}>Edit</button></td>
       </tr>
     );
   }
   return (
-    <tr>
-      <td className="bold">{c.name}</td>
-      <td><input className="input" style={{ width: 70 }} type="number" min="1" value={f.members} onChange={set('members')} /></td>
-      <td><input className="input" value={f.skills} onChange={set('skills')} /></td>
-      <td><input className="input" style={{ width: 120 }} value={f.zone} onChange={set('zone')} aria-label="Wards" /></td>
-      <td><select className="input" value={f.availability} onChange={set('availability')}>{Object.entries(AVAIL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
-      <td><input className="input" style={{ width: 70 }} type="number" min="1" value={f.max_load} onChange={set('max_load')} aria-label="Max jobs" /></td>
-      <td className="row"><button type="button" className="btn primary sm" onClick={async () => { if (await onSave(c.crew_id, f)) setEdit(false); }}>Save</button><button type="button" className="link-btn" onClick={() => setEdit(false)}>Cancel</button></td>
+    <tr className="editing">
+      <td className="bold cell-main">{c.name}</td>
+      <td data-label="Members"><input className="input" style={{ width: 70 }} type="number" min="1" value={f.members} onChange={set('members')} /></td>
+      <td data-label="Skills"><input className="input" value={f.skills} onChange={set('skills')} /></td>
+      <td data-label="Wards"><input className="input" style={{ width: 120 }} value={f.zone} onChange={set('zone')} aria-label="Wards" /></td>
+      <td data-label="Availability"><select className="input" value={f.availability} onChange={set('availability')}>{Object.entries(AVAIL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
+      <td data-label="Max jobs"><input className="input" style={{ width: 70 }} type="number" min="1" value={f.max_load} onChange={set('max_load')} aria-label="Max jobs" /></td>
+      <td className="row cell-action"><button type="button" className="btn primary sm" onClick={async () => { if (await onSave(c.crew_id, f)) setEdit(false); }}>Save</button><button type="button" className="link-btn" onClick={() => setEdit(false)}>Cancel</button></td>
     </tr>
   );
 }
@@ -80,7 +80,7 @@ export default function Resources() {
         <button type="button" className="btn outline" onClick={() => setNewCrew({ name: '', members: 3, skills: '', zone: '', availability: 'ON_DUTY', max_load: 5 })}><Icon name="plus" size={18} /> Add crew</button>
       </div>
       {newCrew && (
-        <form className="card row wrap" onSubmit={addCrew}>
+        <form className="card row wrap add-form" onSubmit={addCrew}>
           <input className="input" style={{ width: 150 }} placeholder="Crew R-9" value={newCrew.name} onChange={(e) => setNewCrew({ ...newCrew, name: e.target.value })} />
           <input className="input" style={{ width: 90 }} type="number" min="1" value={newCrew.members} onChange={(e) => setNewCrew({ ...newCrew, members: e.target.value })} aria-label="Members" />
           <input className="input" style={{ width: 200 }} placeholder="Skills" value={newCrew.skills} onChange={(e) => setNewCrew({ ...newCrew, skills: e.target.value })} />
@@ -90,20 +90,20 @@ export default function Resources() {
         </form>
       )}
       <div className="panel">
-        <table className="table">
+        <table className="table stackable">
           <thead><tr><th>Crew</th><th>Members</th><th>Skills</th><th>Zone</th><th>Availability</th><th>Load</th><th /></tr></thead>
           <tbody>{data.crews.map((c) => <CrewRow key={c.crew_id} c={c} onSave={saveCrew} />)}</tbody>
         </table>
       </div>
-      <div className="split" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="two-col">
         <div className="card stack">
           <div className="row between"><h3>Equipment</h3><span className="small muted">Filled = available now</span></div>
           {data.equipment.map((eq) => (
-            <div key={eq.equipment_id} className="row between">
+            <div key={eq.equipment_id} className="row between wrap equip-row">
               <span>{eq.name}</span>
-              <span className="row">
-                <span className="meter">{Array.from({ length: eq.total_units }, (_, k) => (
-                  <i key={k} className={k < eq.available_units ? 'on' : ''} style={{ cursor: 'pointer', width: 14, height: 14 }}
+              <span className="row wrap" style={{ minWidth: 0 }}>
+                <span className="meter tappable">{Array.from({ length: eq.total_units }, (_, k) => (
+                  <i key={k} className={k < eq.available_units ? 'on' : ''}
                     onClick={() => setEquipment(eq, k < eq.available_units ? k : k + 1)} title="Click to change availability" />
                 ))}</span>
                 <span className="mono small">{eq.available_units}/{eq.total_units}</span>

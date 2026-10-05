@@ -33,7 +33,14 @@ r.get('/geocode/reverse', requireAuth, h(async (req, res) => {
   res.json({ address: await reverseGeocode(Number(req.query.lat), Number(req.query.lng)) });
 }));
 
+// Anti-spam: a citizen can send up to REPORTS_PER_HOUR reports an hour.
+const REPORTS_PER_HOUR = Number(process.env.REPORTS_PER_HOUR || 10);
+
 r.post('/reports', ...citizen, photoUpload, h(async (req, res) => {
+  const { n } = await getDb()
+    .prepare('SELECT COUNT(*) n FROM report WHERE citizen_id = ? AND submitted_at > ?')
+    .get(req.user.user_id, new Date(Date.now() - 3600000).toISOString());
+  if (n >= REPORTS_PER_HOUR) throw new HttpError(429, `You've sent ${n} reports in the last hour. Please wait a little before sending more.`, 'RATE_LIMITED');
   const photoUrl = await savePhoto(req);
   try {
     // Reports queued offline carry the time they were written.
@@ -47,6 +54,47 @@ r.post('/reports', ...citizen, photoUpload, h(async (req, res) => {
     await discardPhoto(photoUrl);
     throw e;
   }
+}));
+
+// Citizen home: how the city is doing, and what was fixed near them.
+r.get('/citizen/overview', ...citizen, h(async (req, res) => {
+  const db = getDb();
+  const since = new Date(Date.now() - 30 * 86400000).toISOString();
+  const city = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM incident WHERE status = 'CLOSED' AND closed_at >= ?) fixed_30d,
+         (SELECT COUNT(*) FROM incident WHERE status != 'CLOSED') open_now,
+         (SELECT COUNT(*) FROM report WHERE submitted_at >= ?) reports_30d,
+         (SELECT COUNT(*) FROM report WHERE submitted_at >= ? AND link_method IN ('AUTO','OFFICER','CITIZEN')) joined_30d,
+         (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY julianday(closed_at) - julianday(opened_at))
+            FROM incident WHERE status = 'CLOSED' AND closed_at >= ?) median_close_days`
+    )
+    .get(since, since, since, since);
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  let recentFixes = [];
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const box = boundingBox({ lat, lng }, 3000);
+    recentFixes = (await db
+      .prepare(incidentSummarySql(`i.status = 'CLOSED' AND i.closed_at >= ? AND i.latitude BETWEEN ? AND ? AND i.longitude BETWEEN ? AND ?`) + ' ORDER BY i.closed_at DESC LIMIT 20')
+      .all(since, box.minLat, box.maxLat, box.minLng, box.maxLng))
+      .map(decorateIncident)
+      .map((i) => ({
+        incident_id: i.incident_id, code: i.code, title: i.title, category_name: i.category_name, address: i.address,
+        closed_at: i.closed_at, opened_at: i.opened_at, report_count: i.report_count, closure_type: i.closure_type,
+        distance_m: Math.round(distanceMeters({ lat, lng }, { lat: i.latitude, lng: i.longitude })),
+      }))
+      .filter((i) => i.distance_m <= 3000)
+      .slice(0, 5);
+  }
+  res.json({
+    city: {
+      fixed_30d: city.fixed_30d, open_now: city.open_now, reports_30d: city.reports_30d, joined_30d: city.joined_30d,
+      median_close_days: city.median_close_days == null ? null : Math.round(city.median_close_days * 10) / 10,
+    },
+    recent_fixes: recentFixes,
+  });
 }));
 
 async function myReports(userId) {

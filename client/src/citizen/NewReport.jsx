@@ -3,12 +3,12 @@
 // FR-12; the photo is required by project decision, design p.14). Without a
 // connection the report is queued on the phone and sent later.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, formOf } from '../api.js';
 import { compressImage } from '../lib/image.js';
 import { outboxAvailable, queueReport } from '../lib/outbox.js';
 import { useAuth } from '../auth.jsx';
-import { getLocation, useApi } from '../lib/hooks.js';
+import { DEMO_HOME, getLocation, useApi } from '../lib/hooks.js';
 import { meters, STATUS_LABEL } from '../lib/format.js';
 import { Icon, Photo } from '../components/ui.jsx';
 import MapView from '../components/MapView.jsx';
@@ -48,7 +48,9 @@ export default function NewReport() {
   const [photo, setPhoto] = useState(null);
   const photoUrl = useMemo(() => (photo ? URL.createObjectURL(photo) : null), [photo]);
   const [description, setDescription] = useState('');
-  const [categoryId, setCategoryId] = useState(null);
+  const [params] = useSearchParams();
+  // Shortcut tiles on the home screen open this with ?category=<id>.
+  const [categoryId, setCategoryId] = useState(() => Number(params.get('category')) || null);
   const [suggested, setSuggested] = useState([]);
   const [loc, setLoc] = useState(null);
   const [locState, setLocState] = useState('locating');
@@ -161,7 +163,7 @@ export default function NewReport() {
   };
 
   if (picking) {
-    return <LocationPicker start={loc || { lat: 18.5104, lng: 73.8667 }} onCancel={() => setPicking(false)}
+    return <LocationPicker start={loc || DEMO_HOME} onCancel={() => setPicking(false)}
       onDone={(p) => { setLoc({ ...p, source: 'map' }); setLocState('map'); setPicking(false); }} />;
   }
 
@@ -169,7 +171,7 @@ export default function NewReport() {
   const locLine = {
     gps: `GPS · accurate to ${loc?.accuracy ?? '?'} m`,
     map: 'Picked on the map',
-    outside: 'Demo location in MetroServe (you are outside the demo city)',
+    outside: 'Demo location in Kamla Nagar (you are outside North Delhi). Pick the spot on the map.',
     denied: 'Location is off, so we used the demo location. Pick the spot on the map.',
     unavailable: "GPS couldn't get a fix. Using the demo location; pick the spot on the map.",
     unsupported: 'This browser has no GPS. Pick the spot on the map.',

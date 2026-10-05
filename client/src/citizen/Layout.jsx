@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
-import { Brand, Icon } from '../components/ui.jsx';
+import { Avatar, Brand, Icon } from '../components/ui.jsx';
 import { OutboxSender } from '../components/Outbox.jsx';
 
 export function PhoneShell({ children, tabs, bar, wide }) {
@@ -28,8 +28,8 @@ export default function CitizenLayout({ children, tabs = true }) {
         <NavLink to="/" end><Icon name="home" />Home</NavLink>
         <NavLink to="/nearby"><Icon name="map" />Nearby</NavLink>
         <NavLink to="/reports"><Icon name="list" />Reports</NavLink>
-        <NavLink to="/updates" className="desk-only">{user?.unread > 0 && <span className="dot" />}<Icon name="bell" />Updates</NavLink>
-        <NavLink to="/profile">{user?.unread > 0 && <span className="dot mob-only" />}<Icon name="user" />Profile</NavLink>
+        <NavLink to="/updates">{user?.unread > 0 && <span className="tab-badge">{user.unread > 9 ? '9+' : user.unread}</span>}<Icon name="bell" />Updates</NavLink>
+        <NavLink to="/profile">{user?.avatar_url ? <Avatar user={user} size={22} className="tab-avatar" /> : <Icon name="user" />}Profile</NavLink>
         <NavLink to="/report/new" className="desk-only cta"><Icon name="camera" />Report an issue</NavLink>
       </div>
     </nav>

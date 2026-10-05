@@ -1,6 +1,7 @@
 // End-to-end rules from the SRS: consolidation (BR-02, BR-12), verification
 // (BR-05, BR-06, BR-10, BR-11), role checks (FR-04, NFR-10) and login lockout.
 process.env.CIVICPULSE_DB = ':memory:';
+process.env.RATE_LIMIT = '0'; // per-device limits would trip over the many sign-ins below
 process.env.CIVICPULSE_UPLOAD_DIR = new URL('../data/test-uploads', import.meta.url).pathname;
 delete process.env.DATABASE_URL;
 delete process.env.BLOB_READ_WRITE_TOKEN;
@@ -179,7 +180,19 @@ test('citizen signs in with a phone code and reports with a photo through the AP
   withPhoto.append('photo', new Blob([PNG], { type: 'image/png' }), 'light.png');
   const rep = await call('/reports', { token, method: 'POST', form: withPhoto });
   assert.equal(rep.status, 201);
-  assert.match(rep.body.report.photo_url, /^\/uploads\/.+\.png$/);
+  // Without a Blob store the photo is kept in the database and served by the API.
+  assert.match(rep.body.report.photo_url, /^\/api\/photos\/[a-f0-9]{32}$/);
+  const img = await fetch(base.replace(/\/api$/, '') + rep.body.report.photo_url);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), PNG);
+
+  // A file that only claims to be an image is refused.
+  const fake = new FormData();
+  for (const [k, v] of Object.entries(fields)) fake.append(k, v);
+  fake.append('photo', new Blob(['<script>alert(1)</script>'], { type: 'image/png' }), 'x.png');
+  const refused = await call('/reports', { token, method: 'POST', form: fake });
+  assert.equal(refused.status, 422);
 
   const mine = await call('/reports/mine', { token });
   assert.equal(mine.body.length, 1);
@@ -236,4 +249,67 @@ test('responses carry security headers', async () => {
   const res = await fetch(`${base}/health`);
   assert.match(res.headers.get('content-security-policy'), /default-src 'self'/);
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('"I see it too" joins without a photo, but only once per citizen', async () => {
+  const token = await citizenToken('9000000003');
+  const inc = await db.prepare(`SELECT * FROM incident WHERE status IN ('ASSIGNED','IN_PROGRESS') ORDER BY incident_id LIMIT 1`).get();
+  const form = () => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries({ description: `I see it too: ${inc.title}`, category_id: inc.category_id, latitude: inc.latitude, longitude: inc.longitude, join_incident_id: inc.incident_id })) f.append(k, String(v));
+    return f;
+  };
+  const first = await call('/reports', { token, method: 'POST', form: form() });
+  assert.equal(first.status, 201);
+  assert.equal(first.body.incident_id, inc.incident_id);
+  const again = await call('/reports', { token, method: 'POST', form: form() });
+  assert.equal(again.status, 409);
+});
+
+test('profile pictures upload and are removed', async () => {
+  const token = await citizenToken('9000000004');
+  const f = new FormData();
+  f.append('photo', new Blob([PNG], { type: 'image/png' }), 'me.png');
+  const up = await call('/me/avatar', { token, method: 'POST', form: f });
+  assert.equal(up.status, 200);
+  assert.match(up.body.avatar_url, /^\/api\/photos\//);
+  const gone = await call('/me/avatar', { token, method: 'DELETE' });
+  assert.equal(gone.body.avatar_url, null);
+  assert.equal((await fetch(base.replace(/\/api$/, '') + up.body.avatar_url)).status, 404);
+  assert.equal((await call('/me', { token, method: 'PATCH', body: { name: 'x' } })).status, 422);
+});
+
+test('changing a password signs out other sessions', async () => {
+  const login = await call('/auth/staff', { method: 'POST', body: { staff_id: 'DEP-WORKS', password: 'civicpulse' } });
+  const old = login.body.token;
+  assert.equal((await call('/me/password', { token: old, method: 'POST', body: { current_password: 'civicpulse', new_password: 'short' } })).status, 422);
+  const changed = await call('/me/password', { token: old, method: 'POST', body: { current_password: 'civicpulse', new_password: 'newpass123' } });
+  assert.equal(changed.status, 200);
+  assert.equal((await call('/me', { token: old })).status, 401);
+  assert.equal((await call('/me', { token: changed.body.token })).status, 200);
+  assert.equal((await call('/auth/staff', { method: 'POST', body: { staff_id: 'DEP-WORKS', password: 'newpass123' } })).status, 200);
+});
+
+test('admins can switch staff accounts off and see the activity log', async () => {
+  const admin = (await call('/auth/staff', { method: 'POST', body: { staff_id: 'ADM-001', password: 'civicpulse' } })).body.token;
+  const crew = (await call('/auth/staff', { method: 'POST', body: { staff_id: 'CREW-P-1', password: 'civicpulse' } })).body.token;
+  const target = await user('CREW-P-1');
+  assert.equal((await call(`/admin/users/${target.user_id}/disable`, { token: admin, method: 'POST', body: { disabled: true } })).status, 200);
+  assert.equal((await call('/me', { token: crew })).status, 401);
+  assert.equal((await call('/auth/staff', { method: 'POST', body: { staff_id: 'CREW-P-1', password: 'civicpulse' } })).status, 403);
+  const me = await user('ADM-001');
+  assert.equal((await call(`/admin/users/${me.user_id}/disable`, { token: admin, method: 'POST', body: { disabled: true } })).status, 409);
+  const log = await call('/admin/audit', { token: admin });
+  assert.ok(log.body.some((x) => x.action === 'STAFF_DISABLED'));
+  assert.equal((await call('/admin/audit', { token: crew })).status, 401);
+});
+
+test('citizen overview and health check', async () => {
+  const token = await citizenToken('9000000005');
+  const out = await call(`/citizen/overview?lat=${spot.lat}&lng=${spot.lng}`, { token });
+  assert.equal(out.status, 200);
+  assert.equal(typeof out.body.city.open_now, 'number');
+  const health = await call('/health');
+  assert.equal(health.body.database, 'up');
+  assert.equal(health.body.photos, 'database');
 });

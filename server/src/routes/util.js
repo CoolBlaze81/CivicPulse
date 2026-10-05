@@ -15,6 +15,7 @@ export const photoUpload = multer({
 }).single('photo');
 export const MAX_PHOTO_MB = MAX_MB;
 
+// storePhoto checks the file's real type from its first bytes.
 export const savePhoto = (req) => (req.file ? storePhoto(req.file) : Promise.resolve(null));
 export const discardPhoto = deletePhoto;
 

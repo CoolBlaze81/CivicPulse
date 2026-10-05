@@ -9,7 +9,7 @@ import { Brand } from '../components/ui.jsx';
 const DEMO = [
   ['Officer', 'Incident triage', 'OFF-101'],
   ['Department', 'Workload board', 'DEP-ROADS'],
-  ['Field worker', 'Today’s jobs (phone)', 'CREW-R-4'],
+  ['Field worker', 'Today’s jobs', 'CREW-R-4'],
   ['Municipal admin', 'City analytics', 'ADM-001'],
 ];
 
@@ -42,7 +42,7 @@ export default function StaffLogin() {
       <div className="login-left">
         <Brand light />
         <h1>One incident.<br />Every report behind it.</h1>
-        <p style={{ opacity: 0.8, fontSize: 17, maxWidth: 440 }}>Staff workspace for MetroServe Municipal Operations Authority — officers, departments, field crews and administrators.</p>
+        <p style={{ opacity: 0.8, fontSize: 17, maxWidth: 440 }}>Staff workspace for the MetroServe Municipal Operations Authority, North Delhi: officers, departments, field crews and administrators.</p>
         <div className="role-map">
           <span className="eyebrow" style={{ color: 'rgba(255,255,255,0.6)' }}>Where each role lands · demo ID</span>
           {DEMO.map(([role, lands, id]) => (

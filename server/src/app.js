@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import helmet from 'helmet';
-import { UPLOAD_DIR } from './db.js';
+import { getDb, UPLOAD_DIR } from './db.js';
+import { readPhoto, storageMode } from './services/storage.js';
 import authRoutes from './routes/auth.js';
 import citizenRoutes from './routes/citizen.js';
 import staffRoutes from './routes/staff.js';
@@ -44,6 +45,14 @@ export function createApp() {
   }));
   app.use(express.json({ limit: '1mb' }));
 
+  // Every response carries a request id; server errors log it so a
+  // reference shown to a user can be found in the logs.
+  app.use((req, res, next) => {
+    req.id = crypto.randomBytes(4).toString('hex').replace(/(.{4})/, '$1-');
+    res.set('X-Request-Id', req.id);
+    next();
+  });
+
   // Sign-in endpoints get tight limits; everything else a generous one.
   const MIN = 60000;
   app.use('/api/auth/otp', rateLimit({ windowMs: 15 * MIN, max: 10, message: 'Too many code requests from this device. Try again in a few minutes.' }));
@@ -51,7 +60,29 @@ export function createApp() {
   app.use('/api/auth/staff', rateLimit({ windowMs: 15 * MIN, max: 20, message: 'Too many sign-in attempts from this device. Try again in a few minutes.' }));
   app.use('/api', rateLimit({ windowMs: MIN, max: 600 }));
 
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
+  // Health check: is the database reachable, and where do photos go.
+  app.get('/api/health', async (req, res) => {
+    const started = Date.now();
+    try {
+      await getDb().prepare('SELECT 1 AS ok').get();
+      res.set('Cache-Control', 'no-store').json({ ok: true, database: 'up', db_ms: Date.now() - started, photos: storageMode(), time: new Date().toISOString() });
+    } catch (e) {
+      console.error('health check failed', e.message);
+      res.status(503).json({ ok: false, database: 'down', photos: storageMode() });
+    }
+  });
+
+  // Photos kept in the database. The id is random and unguessable.
+  app.get('/api/photos/:id', async (req, res, next) => {
+    try {
+      const photo = await readPhoto(req.params.id);
+      if (!photo) return res.status(404).json({ error: "We can't find that photo.", code: 'NOT_FOUND' });
+      res.set({ 'Content-Type': photo.mime, 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Length': photo.data.length });
+      res.end(photo.data);
+    } catch (e) {
+      next(e);
+    }
+  });
   app.use('/api', authRoutes, citizenRoutes, staffRoutes, operationsRoutes);
   app.use('/api', (req, res) => res.status(404).json({ error: "We can't find that.", code: 'NOT_FOUND' }));
 
@@ -75,8 +106,8 @@ export function createApp() {
       return res.status(err.status).json({ error: err.message, code: err.code, problems: err.problems });
     }
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request was not valid JSON.' });
-    const ref = crypto.randomBytes(4).toString('hex').replace(/(.{4})/, '$1-');
-    console.error(`[${ref}]`, err);
+    const ref = req.id || crypto.randomBytes(4).toString('hex').replace(/(.{4})/, '$1-');
+    console.error(`[${ref}] ${req.method} ${req.originalUrl}`, err);
     res.status(500).json({ error: 'Something broke on our side. Your last action was not saved.', code: 'SERVER_ERROR', reference: ref });
   });
   return app;

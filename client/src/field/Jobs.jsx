@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { getLocation, useApi } from '../lib/hooks.js';
-import { meters } from '../lib/format.js';
+import { meters, STAGE_LABEL } from '../lib/format.js';
 import { Icon, Spinner, StatusPill, ErrorNote } from '../components/ui.jsx';
+import { CrewArt } from '../components/Illustrations.jsx';
 import MapView from '../components/MapView.jsx';
 
 export default function Jobs() {
@@ -46,7 +47,8 @@ export default function Jobs() {
             </div>
           )}
           {jobs.length === 0 ? (
-            <div className="card stack center" style={{ padding: 28 }}>
+            <div className="card stack center empty-card">
+              <CrewArt />
               <h3>No jobs assigned</h3>
               <p className="muted">Nothing is assigned to {crew?.name} right now. New jobs show up here and in your alerts.</p>
               <button type="button" className="btn ghost" onClick={reload}><Icon name="refresh" size={16} /> Refresh</button>
@@ -64,7 +66,10 @@ export default function Jobs() {
                   </div>
                   <b style={{ fontSize: 17 }}>{j.title}</b>
                   <span className="small muted">{j.address}</span>
-                  <StatusPill status={j.status} />
+                  <span className="row wrap" style={{ gap: 8 }}>
+                    <StatusPill status={j.status} />
+                    <span className="small muted">{STAGE_LABEL[j.work_stage] || 'Not started'}</span>
+                  </span>
                 </Link>
               ))}
             </div>

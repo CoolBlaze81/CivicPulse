@@ -1,6 +1,7 @@
-// Small geo helpers. The prototype city is fictional, so wards are a simple
-// grid laid over the map around CITY_CENTER.
-export const CITY_CENTER = { lat: 18.5204, lng: 73.8567 };
+// Small geo helpers. The demo covers North Delhi; wards are a simple 4 x 3
+// grid laid over the map around CITY_CENTER (GTB Nagar / Model Town), from
+// Jahangirpuri in the north-west to Civil Lines in the south-east.
+export const CITY_CENTER = { lat: 28.7, lng: 77.19 };
 
 const EARTH_RADIUS_M = 6371000;
 const toRad = (d) => (d * Math.PI) / 180;

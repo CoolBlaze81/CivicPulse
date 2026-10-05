@@ -1,14 +1,14 @@
 // Vercel serverless entry: every /api request is handled by the Express app.
-// The first request on a fresh database loads the demo data.
+// The first request on a fresh database (or one holding older demo data)
+// loads the demo data.
 let starting = null;
 
 async function start() {
   const { createApp } = await import('../server/src/app.js');
-  const { getDb, ready } = await import('../server/src/db.js');
-  const { seedDatabase } = await import('../server/src/seed.js');
+  const { ready } = await import('../server/src/db.js');
+  const { ensureDemoData } = await import('../server/src/seed.js');
   await ready();
-  const { n } = await getDb().prepare('SELECT COUNT(*) n FROM "user"').get();
-  if (n === 0) await seedDatabase({ onlyIfEmpty: true });
+  await ensureDemoData();
   return createApp();
 }
 

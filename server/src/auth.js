@@ -21,14 +21,33 @@ const OTP_PER_HOUR = 5;
 
 export const ROLES = ['CITIZEN', 'OFFICER', 'DEPT_HEAD', 'FIELD_WORKER', 'ADMIN'];
 
+// tv (token version) lets a user sign out every device: bumping
+// user.token_version makes all earlier tokens invalid.
 export function issueToken(user) {
-  return jwt.sign({ sub: user.user_id, role: user.role }, SECRET, { expiresIn: `${SESSION_HOURS}h` });
+  return jwt.sign({ sub: user.user_id, role: user.role, tv: user.token_version || 0 }, SECRET, { expiresIn: `${SESSION_HOURS}h` });
 }
 
 export function publicUser(u) {
   if (!u) return null;
-  const { password_hash, failed_logins, locked_until, ...rest } = u;
+  const { password_hash, failed_logins, locked_until, token_version, ...rest } = u;
   return rest;
+}
+
+// Audit trail of sign-ins, account changes and admin actions.
+export async function audit(userId, action, detail = null, ip = null) {
+  try {
+    await getDb().prepare('INSERT INTO audit_log (user_id, action, detail, ip, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId || null, action, detail ? String(detail).slice(0, 500) : null, ip ? String(ip).slice(0, 64) : null, nowIso());
+  } catch (e) {
+    console.error('audit log write failed', e.message);
+  }
+}
+
+export const PASSWORD_RULE = 'Use at least 8 characters with a letter and a number.';
+export function checkPassword(pw) {
+  const s = String(pw || '');
+  if (s.length < 8 || s.length > 128 || !/[a-z]/i.test(s) || !/\d/.test(s)) throw new HttpError(422, PASSWORD_RULE, 'WEAK_PASSWORD');
+  return s;
 }
 
 export function normalisePhone(raw) {
@@ -65,7 +84,7 @@ export async function requestOtp(rawPhone) {
   return { phone, demo_code: code, is_new: !existing };
 }
 
-export async function verifyOtp(rawPhone, code, name) {
+export async function verifyOtp(rawPhone, code, name, ip) {
   const db = getDb();
   const phone = normalisePhone(rawPhone);
   const row = phone && (await db.prepare('SELECT * FROM otp_code WHERE phone = ?').get(phone));
@@ -83,16 +102,19 @@ export async function verifyOtp(rawPhone, code, name) {
 
   let user = await db.prepare('SELECT * FROM "user" WHERE phone = ? AND deleted = 0').get(phone);
   if (!user) {
-    const cleanName = String(name || '').trim();
+    const cleanName = String(name || '').trim().replace(/\s+/g, ' ');
     if (!cleanName) throw new HttpError(422, 'Tell us your name to create your account.', 'NAME_REQUIRED');
+    if (cleanName.length < 2 || cleanName.length > 60) throw new HttpError(422, 'Names need 2 to 60 characters.', 'NAME_REQUIRED');
     const info = await db.prepare(`INSERT INTO "user" (name, phone, role, created_at) VALUES (?, ?, 'CITIZEN', ?)`).run(cleanName, phone, nowIso());
     user = await db.prepare('SELECT * FROM "user" WHERE user_id = ?').get(info.lastInsertRowid);
   }
   if (user.role !== 'CITIZEN') throw new HttpError(403, 'Staff accounts sign in with a staff ID.');
+  await db.prepare('UPDATE "user" SET last_login_at = ? WHERE user_id = ?').run(nowIso(), user.user_id);
+  await audit(user.user_id, 'SIGN_IN', 'Citizen signed in with a phone code', ip);
   return { token: issueToken(user), user: publicUser(user) };
 }
 
-export async function staffLogin(staffId, password) {
+export async function staffLogin(staffId, password, ip) {
   const db = getDb();
   const user = await db
     .prepare(`SELECT * FROM "user" WHERE lower(staff_id) = lower(?) AND role != 'CITIZEN' AND deleted = 0`)
@@ -102,6 +124,10 @@ export async function staffLogin(staffId, password) {
       ? `Staff ID or password is wrong. ${left} attempt${left === 1 ? '' : 's'} left before the account is locked for ${LOCK_MINUTES} minutes.`
       : 'Staff ID or password is wrong.');
   if (!user) throw generic(null);
+  if (user.disabled) {
+    await audit(user.user_id, 'SIGN_IN_BLOCKED', 'Account is disabled', ip);
+    throw new HttpError(403, 'This account is switched off. Ask your MSMO administrator.', 'DISABLED');
+  }
   if (user.locked_until && Date.parse(user.locked_until) > Date.now()) {
     const mins = Math.ceil((Date.parse(user.locked_until) - Date.now()) / 60000);
     throw new HttpError(423, `This account is locked. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`, 'LOCKED');
@@ -111,12 +137,15 @@ export async function staffLogin(staffId, password) {
     if (failed >= MAX_FAILED_LOGINS) {
       await db.prepare('UPDATE "user" SET failed_logins = 0, locked_until = ? WHERE user_id = ?')
         .run(new Date(Date.now() + LOCK_MINUTES * 60000).toISOString(), user.user_id);
+      await audit(user.user_id, 'ACCOUNT_LOCKED', `${MAX_FAILED_LOGINS} wrong passwords`, ip);
       throw new HttpError(423, `Too many wrong attempts. The account is locked for ${LOCK_MINUTES} minutes.`, 'LOCKED');
     }
     await db.prepare('UPDATE "user" SET failed_logins = ? WHERE user_id = ?').run(failed, user.user_id);
+    await audit(user.user_id, 'SIGN_IN_FAILED', 'Wrong password', ip);
     throw generic(MAX_FAILED_LOGINS - failed);
   }
-  await db.prepare('UPDATE "user" SET failed_logins = 0, locked_until = NULL WHERE user_id = ?').run(user.user_id);
+  await db.prepare('UPDATE "user" SET failed_logins = 0, locked_until = NULL, last_login_at = ? WHERE user_id = ?').run(nowIso(), user.user_id);
+  await audit(user.user_id, 'SIGN_IN', 'Staff signed in', ip);
   return { token: issueToken(user), user: publicUser(user) };
 }
 
@@ -135,6 +164,8 @@ export async function requireAuth(req, res, next) {
   try {
     const user = await getDb().prepare('SELECT * FROM "user" WHERE user_id = ? AND deleted = 0').get(payload.sub);
     if (!user) return res.status(401).json({ error: 'Your account no longer exists.', code: 'NO_SESSION' });
+    if ((payload.tv || 0) !== (user.token_version || 0)) return res.status(401).json({ error: 'You were signed out. Sign in again.', code: 'SESSION_EXPIRED' });
+    if (user.disabled) return res.status(401).json({ error: 'This account is switched off.', code: 'NO_SESSION' });
     req.user = user;
   } catch (e) {
     return next(e);
@@ -153,4 +184,22 @@ export function requireRole(...roles) {
 
 export function hashPassword(pw) {
   return bcrypt.hashSync(pw, 10);
+}
+
+// Staff change their own password; every other session is signed out.
+export async function changePassword(user, current, next, ip) {
+  if (user.role === 'CITIZEN') throw new HttpError(403, 'Citizens sign in with a phone code and have no password.');
+  if (!bcrypt.compareSync(String(current || ''), user.password_hash || '')) throw new HttpError(422, 'Your current password is wrong.', 'WRONG_PASSWORD');
+  const pw = checkPassword(next);
+  if (pw === current) throw new HttpError(422, 'Choose a password different from the current one.', 'WEAK_PASSWORD');
+  await getDb().prepare('UPDATE "user" SET password_hash = ?, token_version = token_version + 1 WHERE user_id = ?').run(hashPassword(pw), user.user_id);
+  await audit(user.user_id, 'PASSWORD_CHANGED', null, ip);
+  const fresh = await getDb().prepare('SELECT * FROM "user" WHERE user_id = ?').get(user.user_id);
+  return { token: issueToken(fresh) };
+}
+
+// Ends every session of this user, including the current one.
+export async function signOutEverywhere(user, ip) {
+  await getDb().prepare('UPDATE "user" SET token_version = token_version + 1 WHERE user_id = ?').run(user.user_id);
+  await audit(user.user_id, 'SIGNED_OUT_EVERYWHERE', null, ip);
 }

@@ -25,6 +25,26 @@ const paths = {
   plus: 'M12 5v14 M5 12h14',
   edit: 'M4 20h4L19 9l-4-4L4 16z',
   chevron: 'M9 6l6 6-6 6',
+  menu: 'M4 7h16 M4 12h16 M4 17h16',
+  grid: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z',
+  chart: 'M4 20V10 M10 20V4 M16 20v-7 M22 20H2',
+  users: 'M9 11a4 4 0 100-8 4 4 0 000 8z M2 21a7 7 0 0114 0 M16 3.5a4 4 0 010 7.5 M22 21a7 7 0 00-4-6.3',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4',
+  inbox: 'M4 13l2.5-8h11L20 13v6H4z M4 13h5l1 2h4l1-2h5',
+  building: 'M4 21V5l8-2v18 M12 8l8 2v11 M2 21h20 M7 8h2 M7 12h2 M7 16h2 M15 13h2 M15 17h2',
+  wrench: 'M14.5 6.5a4 4 0 00-5.4 5.1L4 16.7 7.3 20l5.1-5.1a4 4 0 005.1-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
+  logout: 'M15 4h4v16h-4 M10 8l-4 4 4 4 M6 12h10',
+  clock: 'M12 21a9 9 0 100-18 9 9 0 000 18z M12 7v5l3 2',
+  trash: 'M5 7h14 M9 7V4h6v3 M7 7l1 13h8l1-13',
+  key: 'M8 15a4 4 0 110-8 4 4 0 010 8z M11.5 11H21 M18 11v3 M15 11v2',
+  filter: 'M4 5h16l-6 7v6l-4 2v-8z',
+  drop: 'M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z',
+  bulb: 'M9 18h6 M10 21h4 M12 3a6 6 0 00-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0012 3z',
+  road: 'M8 3L4 21 M16 3l4 18 M12 4v3 M12 10v3 M12 16v3',
+  waste: 'M5 7h14 M9 7V4h6v3 M7 7l1 13h8l1-13 M10 11v5 M14 11v5',
+  info: 'M12 21a9 9 0 100-18 9 9 0 000 18z M12 11v5 M12 8h.01',
+  star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M12 15a3 3 0 100-6 3 3 0 000 6z',
 };
 export function Icon({ name, size = 20, stroke = 1.8, ...rest }) {
   return (
@@ -32,6 +52,30 @@ export function Icon({ name, size = 20, stroke = 1.8, ...rest }) {
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...rest}>
       <path d={paths[name]} />
     </svg>
+  );
+}
+
+// Round profile picture, or initials when there is none.
+export function Avatar({ user, size = 38, className = '' }) {
+  const name = user?.name || '';
+  const ini = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  return (
+    <span className={`avatar ${className}`} style={{ width: size, height: size, fontSize: Math.round(size * 0.37) }}>
+      {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : ini || <Icon name="user" size={size * 0.5} />}
+    </span>
+  );
+}
+
+// Segmented tabs that scroll sideways on narrow screens.
+export function Tabs({ tabs, value, onChange, className = '' }) {
+  return (
+    <div className={`tabs ${className}`} role="tablist">
+      {tabs.map(([key, label, count]) => (
+        <button type="button" role="tab" aria-selected={value === key} key={key} className={value === key ? 'on' : ''} onClick={() => onChange(key)}>
+          {label}{count != null && <span className="count">{count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -82,9 +126,10 @@ export function Spinner() {
   return <div className="loading"><div className="spinner" /></div>;
 }
 
-export function EmptyState({ title, children, action }) {
+export function EmptyState({ title, children, action, art }) {
   return (
     <div className="empty">
+      {art}
       <h3>{title}</h3>
       {children && <p className="muted">{children}</p>}
       {action}

@@ -2,8 +2,9 @@
 // see the whole city; department heads see their own department.
 import { useState } from 'react';
 import { useAuth } from '../auth.jsx';
-import { useApi } from '../lib/hooks.js';
-import { Spinner } from '../components/ui.jsx';
+import { WARD_NAMES } from '../lib/format.js';
+import { useApi, useNarrow } from '../lib/hooks.js';
+import { Spinner, Tabs } from '../components/ui.jsx';
 
 // Single-series line: weekly median days to close. Hover shows the value.
 function WeeklyChart({ points }) {
@@ -50,22 +51,19 @@ export default function Analytics() {
   const [ward, setWard] = useState('');
   const { data } = useApi(`/analytics?days=${days}${ward ? `&ward=${ward}` : ''}`);
   const isHead = user.role === 'DEPT_HEAD';
+  const narrow = useNarrow();
 
   const head = (
     <div className="staff-head">
       <div className="stack tight" style={{ gap: 2 }}>
         <h1>{isHead ? 'Reports' : 'City pulse'}</h1>
-        <span className="muted">{isHead ? user.department?.name : 'MetroServe Municipal Operations Authority'}</span>
+        <span className="muted">{isHead ? user.department?.name : 'North Delhi · MetroServe Municipal Operations Authority'}</span>
       </div>
-      <div className="row wrap">
-        <div className="seg" role="group" aria-label="Time range">
-          {[[7, '7 days'], [30, '30 days'], [90, 'Quarter']].map(([d, l]) => (
-            <button type="button" key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>
-          ))}
-        </div>
-        <select className="input" style={{ width: 140, minHeight: 40, borderRadius: 999 }} value={ward} onChange={(e) => setWard(e.target.value)} aria-label="Ward">
+      <div className="row wrap filters">
+        <Tabs value={days} onChange={setDays} tabs={[[7, '7 days'], [30, '30 days'], [90, 'Quarter']]} />
+        <select className="input ward-select" value={ward} onChange={(e) => setWard(e.target.value)} aria-label="Ward">
           <option value="">All wards</option>
-          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>Ward {i + 1}</option>)}
+          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>Ward {i + 1} · {WARD_NAMES[i + 1]}</option>)}
         </select>
       </div>
     </div>
@@ -97,11 +95,11 @@ export default function Analytics() {
         <div className="kpi"><span className="muted small">Closed: citizen · officer-verified</span><b style={{ fontSize: 26 }}>{data.closures.citizen_verified} · {data.closures.officer_verified}</b></div>
       </div>
 
-      <div className="split" style={{ gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)' }}>
+      <div className="two-col wide-left">
         <div className="card stack">
           <h3>Median time from first report to close</h3>
           <span className="small muted">Weekly, last 12 weeks</span>
-          <WeeklyChart points={data.weekly_median_close} />
+          <div className="chart-wrap"><WeeklyChart points={data.weekly_median_close} /></div>
         </div>
         <div className="card stack">
           <h3>Incidents by category</h3>
@@ -116,17 +114,17 @@ export default function Analytics() {
         </div>
       </div>
 
-      <div className="split" style={{ gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)' }}>
+      <div className="two-col wide-left">
         <div className="panel">
           <div className="panel-body" style={{ paddingBottom: 0 }}><h3>Department workload</h3></div>
-          <table className="table">
+          <table className="table stackable">
             <thead><tr><th>Department</th><th>Open</th><th>Overdue</th><th>Median close</th><th>Reopened</th></tr></thead>
             <tbody>
               {workload.map((w) => (
                 <tr key={w.department_id}>
-                  <td className="bold">{w.name}</td><td>{w.open}</td>
-                  <td style={{ color: w.overdue ? 'var(--st-reopened)' : undefined }}>{w.overdue}</td>
-                  <td>{w.median_close_days != null ? `${w.median_close_days} d` : '—'}</td><td>{w.reopened}</td>
+                  <td className="bold cell-main">{w.name}</td><td data-label="Open">{w.open}</td>
+                  <td data-label="Overdue" style={{ color: w.overdue ? 'var(--st-reopened)' : undefined }}>{w.overdue}</td>
+                  <td data-label="Median close">{w.median_close_days != null ? `${w.median_close_days} d` : '—'}</td><td data-label="Reopened">{w.reopened}</td>
                 </tr>
               ))}
             </tbody>
@@ -147,12 +145,24 @@ export default function Analytics() {
 
       <div className="panel">
         <div className="panel-body" style={{ paddingBottom: 0 }}><h3>By ward</h3></div>
-        <table className="table">
-          <thead><tr><th>Ward</th><th>Incidents opened in range</th><th>Still open</th></tr></thead>
-          <tbody>
-            {data.by_ward.map((w) => <tr key={w.ward}><td>Ward {w.ward}</td><td>{w.opened}</td><td>{w.open_now}</td></tr>)}
-          </tbody>
-        </table>
+        {narrow ? (
+          <div className="ward-grid">
+            {data.by_ward.map((w) => (
+              <button type="button" key={w.ward} className={`ward-tile ${String(ward) === String(w.ward) ? 'on' : ''}`} onClick={() => setWard(String(ward) === String(w.ward) ? '' : String(w.ward))}>
+                <span className="small muted">{WARD_NAMES[w.ward] || `Ward ${w.ward}`}</span>
+                <b>{w.opened}</b>
+                <span className="tiny muted">{w.open_now} still open</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <table className="table">
+            <thead><tr><th>Ward</th><th>Area</th><th>Incidents opened in range</th><th>Still open</th></tr></thead>
+            <tbody>
+              {data.by_ward.map((w) => <tr key={w.ward}><td>Ward {w.ward}</td><td>{WARD_NAMES[w.ward] || ''}</td><td>{w.opened}</td><td>{w.open_now}</td></tr>)}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );

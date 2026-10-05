@@ -41,10 +41,11 @@ export function useApi(path, { interval, offline } = {}) {
   return { data, error, loading, reload, setData };
 }
 
-// The demo city is fictional (MetroServe, centred on these coordinates). If
-// the device is far away or location is off, the demo location is used.
-export const CITY = { lat: 18.5204, lng: 73.8567 };
-export const DEMO_HOME = { lat: 18.5104, lng: 73.8667 }; // Sector 14, Ward 11
+// The demo covers North Delhi (centred on these coordinates). If the device
+// is far away or location is off, the demo location is used.
+export const CITY = { lat: 28.7, lng: 77.19 };
+export const DEMO_HOME = { lat: 28.68, lng: 77.2 }; // Kamla Nagar, Ward 11
+export const DEMO_AREA = 'Kamla Nagar, North Delhi';
 
 function far(a, b) {
   return Math.abs(a.lat - b.lat) > 0.3 || Math.abs(a.lng - b.lng) > 0.3;
@@ -75,3 +76,18 @@ export function useToast() {
   }, []);
   return [msg, show];
 }
+
+// True while the media query matches, e.g. useMedia('(max-width: 899px)').
+export function useMedia(query) {
+  const get = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
+  const [match, setMatch] = useState(get);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setMatch(m.matches);
+    on();
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, [query]);
+  return match;
+}
+export const useNarrow = () => useMedia('(max-width: 1099px)');

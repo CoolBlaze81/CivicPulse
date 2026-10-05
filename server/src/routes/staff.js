@@ -106,7 +106,7 @@ r.get('/staff/incidents/:id', ...staff, h(async (req, res) => {
   });
 }));
 
-r.get('/staff/departments/:id/crews', ...staff, h(async (req, res) => {
+r.get('/staff/departments/:id/crews', requireAuth, requireRole('OFFICER', 'DEPT_HEAD', 'ADMIN'), h(async (req, res) => {
   const id = intParam(req.params.id);
   const ward = Number(req.query.ward) || null;
   res.json({ crews: await crewsForDepartment(id), suggested: ward ? await suggestCrew(id, ward) : null });

@@ -1,14 +1,11 @@
-import { openDb, getDb } from './db.js';
+import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { sweepExpired } from './services/verification.js';
-import { seedDatabase } from './seed.js';
+import { ensureDemoData } from './seed.js';
 
 await openDb();
-// First run: fill the database with the MSMO demo data.
-if ((await getDb().prepare('SELECT COUNT(*) n FROM "user"').get()).n === 0) {
-  console.log('Empty database, loading demo data (about half a minute, first run only)...');
-  await seedDatabase({ onlyIfEmpty: true });
-}
+// First run (or older demo data): load the MSMO demo data. About half a minute.
+await ensureDemoData();
 
 const PORT = Number(process.env.PORT || 4000);
 createApp().listen(PORT, () => {

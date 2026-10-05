@@ -18,6 +18,10 @@ import { recordResponse, evaluate as evaluateVerification, officerVerify, sweepE
 import { refreshRecommendations } from './services/classification.js';
 
 export const DEMO_PASSWORD = 'civicpulse';
+// Bump when the demo data changes in a way an existing database should pick
+// up (2: moved from the old fictional city to North Delhi). A server that
+// finds older demo data reloads it on start; DEMO_RESEED=0 turns that off.
+export const SEED_VERSION = 2;
 
 // Deterministic random numbers so every seed gives the same data.
 function rng(seed) {
@@ -73,10 +77,16 @@ const EQUIPMENT = {
   P: [['Utility van', 2, 2]],
 };
 
+// North Delhi localities, one per ward (see geo.js for the ward grid).
+export const WARD_NAMES = {
+  1: 'Jahangirpuri', 2: 'Adarsh Nagar', 3: 'Model Town', 4: 'Mukherjee Nagar', 5: 'Wazirpur', 6: 'Azadpur',
+  7: 'GTB Nagar', 8: 'Timarpur', 9: 'Keshav Puram', 10: 'Ashok Vihar', 11: 'Kamla Nagar', 12: 'Civil Lines',
+};
 const STREETS = {
-  1: ['Hill Rd', 'Temple St'], 2: ['University Rd', 'Park Ave'], 3: ['Lake Rd', 'Mill St'], 4: ['Airport Rd', 'Cantonment Rd'],
-  5: ['Nehru Marg', 'Fort Rd'], 6: ['Bazaar Rd', 'Station Approach'], 7: ['Ring Rd', 'Gandhi Nagar Main Rd'], 8: ['Canal Rd', 'Shivaji Path'],
-  9: ['Station Rd', 'Sector 9 Park Rd'], 10: ['Tilak Marg', 'MG Rd'], 11: ['Market St', 'Old Bazaar Rd'], 12: ['Sector 12 Main Rd', 'Lakeview Ln'],
+  1: ['GT Karnal Rd', 'Jahangirpuri Main Rd'], 2: ['Adarsh Nagar Main Rd', 'Lal Bagh Rd'], 3: ['Model Town Main Rd', 'Bhama Shah Marg'],
+  4: ['Mukherjee Nagar Main Rd', 'Banda Bahadur Marg'], 5: ['Wazirpur Industrial Rd', 'Bungalow Rd'], 6: ['Azadpur Mandi Rd', 'Outer Bungalow Rd'],
+  7: ['Hudson Lane', 'Kingsway Camp Rd'], 8: ['Timarpur Main Rd', 'Mall Rd'], 9: ['Lawrence Rd', 'Keshav Puram Main Rd'],
+  10: ['Ashok Vihar Main Rd', 'Satyawati Marg'], 11: ['Bungalow Rd', 'Chhatra Marg'], 12: ['Rajpur Rd', 'Alipur Rd'],
 };
 
 // Phrases citizens use, per category. {s} = street.
@@ -180,7 +190,7 @@ export async function seed({ now = Date.now(), historyDays = 100 } = {}) {
   const officer2 = await user({ name: 'N. Iyer', staff_id: 'OFF-102', password_hash: pw, role: 'OFFICER', wards: '1,2,3,4,5,6' });
   await user({ name: 'A. Desai', staff_id: 'ADM-001', password_hash: pw, role: 'ADMIN' });
 
-  const aarav = await user({ name: 'Aarav Mehta', phone: '9876543210', role: 'CITIZEN', home_area: 'Sector 14' });
+  const aarav = await user({ name: 'Aarav Mehta', phone: '9876543210', role: 'CITIZEN', home_area: 'Kamla Nagar' });
   const citizens = [];
   for (let i = 0; i < 60; i += 1) {
     citizens.push(await user({ name: `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]}`, phone: `98${String(20000000 + i * 7919).slice(0, 8)}`, role: 'CITIZEN' }));
@@ -221,7 +231,7 @@ export async function seed({ now = Date.now(), historyDays = 100 } = {}) {
   for (const ev of events) {
     let incidentId = null;
     const text = () => pick(PHRASES[ev.category]).replace('{s}', ev.street);
-    const address = `${Math.floor(between(2, 120))} ${ev.street}`;
+    const address = `${Math.floor(between(2, 120))} ${ev.street}, ${WARD_NAMES[ev.ward]}`;
     for (let j = 0; j < ev.reports; j += 1) {
       const at = ev.start + (j === 0 ? 0 : between(0.2, 30) * HOUR * j ** 0.5);
       const p = jitter(ev.point, j === 0 ? 0 : 45);
@@ -342,7 +352,7 @@ export async function seed({ now = Date.now(), historyDays = 100 } = {}) {
 
 // ---- the live scenarios from the design mockups ----------------------------
 async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aarav, citizens, actor, crewLead }) {
-  const home = wardCenter(11); // Aarav lives in Sector 14, Ward 11
+  const home = wardCenter(11); // Aarav lives in Kamla Nagar, Ward 11
   let ci = 0;
   const nextCitizen = () => citizens[(ci++ * 7) % citizens.length];
 
@@ -383,12 +393,12 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
     return await crewLead(crew.crew_id);
   };
 
-  // 1. Deep pothole, Ring Road: 12 reports, Aarav's among them, crew on site.
-  const ringRoad = { lat: home.lat + 0.0021, lng: home.lng - 0.0017 };
+  // 1. Deep pothole, Bungalow Road: 12 reports, Aarav's among them, crew on site.
+  const bungalowRd = { lat: home.lat + 0.0021, lng: home.lng - 0.0017 };
   const pothole = await cluster({
-    category: 'Pothole', title: 'Deep pothole, Ring Road', point: ringRoad, address: '14 Ring Road, Sector 14',
-    texts: ['Deep pothole on Ring Road, roughly a metre wide. Two-wheelers swerving into traffic.', 'Big pothole on Ring Road near the petrol pump',
-      'Pothole on Ring Rd getting deeper every day', 'Huge hole in the left lane of Ring Road', 'Ring Road pothole, my scooter almost fell'],
+    category: 'Pothole', title: 'Deep pothole, Bungalow Road', point: bungalowRd, address: '14 Bungalow Road, Kamla Nagar',
+    texts: ['Deep pothole on Bungalow Road, roughly a metre wide. Two-wheelers swerving into traffic.', 'Big pothole on Bungalow Road near the petrol pump',
+      'Pothole on Bungalow Rd getting deeper every day', 'Huge hole in the left lane of Bungalow Road', 'Bungalow Road pothole, my scooter almost fell'],
     first: now - 2.6 * DAY, spreadHours: 40, count: 12, reporters: [undefined, undefined, aarav],
   });
   await db.prepare('UPDATE incident SET description = ? WHERE incident_id = ?')
@@ -397,28 +407,28 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
   await updateProgress(pothole, r4, { stage: 'EN_ROUTE' }, iso(now - 5 * HOUR));
   await updateProgress(pothole, r4, { stage: 'WORKING', note: 'Barricaded the lane, cutting the edges.' }, iso(now - 3 * HOUR));
 
-  // 2. Streetlight on Lakeview Lane: resolved today, 1 of 4 answered.
-  const lakeview = { lat: home.lat - 0.0016, lng: home.lng + 0.0024 };
+  // 2. Streetlight on Shakti Nagar Lane: resolved today, 1 of 4 answered.
+  const shaktiLane = { lat: home.lat - 0.0016, lng: home.lng + 0.0024 };
   const light = await cluster({
-    category: 'Streetlight', title: 'Streetlight out, Lakeview Lane', point: lakeview, address: 'Lakeview Lane, near house no. 22',
-    texts: ['Streetlight outside house 22 on Lakeview Lane is not working', 'Street light off at night on Lakeview Ln, very dark',
-      'Lakeview Lane streetlight dead for a week'],
+    category: 'Streetlight', title: 'Streetlight out, Shakti Nagar Lane', point: shaktiLane, address: 'Shakti Nagar Lane, near house no. 22',
+    texts: ['Streetlight outside house 22 on Shakti Nagar Lane is not working', 'Street light off at night on Shakti Nagar Ln, very dark',
+      'Shakti Nagar Lane streetlight dead for a week'],
     first: now - 5 * DAY, spreadHours: 30, count: 4, reporters: [aarav],
   });
   const e2 = await triageAndAssign(light, 'Crew E-2', now - 3.5 * DAY);
   await updateProgress(light, e2, { stage: 'WORKING' }, iso(now - 1 * DAY));
-  const lp = jitter(lakeview, 5);
+  const lp = jitter(shaktiLane, 5);
   await updateProgress(light, e2, {
     stage: 'RESOLVED', note: 'Replaced the LED fitting and the faulty junction box. Tested after dusk.', latitude: lp.lat, longitude: lp.lng,
   }, iso(now - 19.8 * HOUR));
   const lightReq = await db.prepare('SELECT citizen_id FROM verification_request WHERE incident_id = ? AND citizen_id != ? LIMIT 1').get(light, aarav);
   await recordResponse(light, lightReq.citizen_id, { fixed: true }, iso(now - 10 * HOUR));
 
-  // 3. Overflowing bin, Sector 9 park: Aarav's, closed 3 weeks ago in 1.5 days.
+  // 3. Overflowing bin, Roshanara Bagh: Aarav's, closed 3 weeks ago in 1.5 days.
   const binPoint = { lat: home.lat + 0.004, lng: home.lng + 0.0035 };
   const bin = await cluster({
-    category: 'Waste', title: 'Overflowing bin, Sector 9 park', point: binPoint, address: 'Sector 9 park gate',
-    texts: ['Garbage bin overflowing at the Sector 9 park gate'], first: now - 21 * DAY, spreadHours: 0, count: 1, reporters: [aarav],
+    category: 'Waste', title: 'Overflowing bin, Roshanara Bagh', point: binPoint, address: 'Roshanara Bagh gate',
+    texts: ['Garbage bin overflowing at the Roshanara Bagh gate'], first: now - 21 * DAY, spreadHours: 0, count: 1, reporters: [aarav],
   });
   const s3 = await triageAndAssign(bin, 'Crew S-3', now - 20.8 * DAY);
   await updateProgress(bin, s3, { stage: 'RESOLVED', note: 'Bin emptied and area cleaned.', latitude: binPoint.lat, longitude: binPoint.lng }, iso(now - 19.6 * DAY));
@@ -427,49 +437,49 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
   // 4. Officer triage queue (design p.25).
   const ward = (w, dLat, dLng) => { const c = wardCenter(w); return { lat: c.lat + dLat, lng: c.lng + dLng }; };
   await cluster({
-    category: 'Road collapse', title: 'Road cave-in near school gate', point: ward(9, 0.002, -0.001), address: 'Station Road, near Govt. School No. 4',
-    texts: ['Road has caved in right outside the school gate, kids walking around it', 'Big hole opened up on Station Road, a bike almost fell in',
-      'Road sinking near Govt School No. 4', 'Dangerous pit, no barricade, please send someone', 'Cave-in on Station Rd, water seeping from below',
+    category: 'Road collapse', title: 'Road cave-in near school gate', point: ward(9, 0.002, -0.001), address: 'Lawrence Road, near Govt. School No. 4',
+    texts: ['Road has caved in right outside the school gate, kids walking around it', 'Big hole opened up on Lawrence Road, a bike almost fell in',
+      'Road sinking near Govt School No. 4', 'Dangerous pit, no barricade, please send someone', 'Cave-in on Lawrence Rd, water seeping from below',
       'School road damaged badly', 'Traffic diverted because of hole in road', 'Pit getting bigger, edges breaking', 'Near school gate the road collapsed'],
     first: now - 2 * HOUR, spreadHours: 1.9, count: 9,
   });
   await cluster({
-    category: 'Water leakage', title: 'Burst water main, flooding lane', point: ward(7, -0.003, 0.002), address: 'Gandhi Nagar, lane 3',
-    texts: ['Water main burst, the whole lane is flooding', 'Burst pipe flooding Gandhi Nagar lane 3', 'Water gushing from the road, flooding houses'],
+    category: 'Water leakage', title: 'Burst water main, flooding lane', point: ward(7, -0.003, 0.002), address: 'Kingsway Camp, lane 3',
+    texts: ['Water main burst, the whole lane is flooding', 'Burst pipe flooding Kingsway Camp lane 3', 'Water gushing from the road, flooding houses'],
     first: now - 3 * HOUR, spreadHours: 2.5, count: 6,
   });
   await cluster({
-    category: 'Drainage', title: 'Blocked storm drain', point: ward(12, 0.001, 0.003), address: 'Sector 12 main road',
-    texts: ['Storm drain blocked on Sector 12 main road, water stagnant', 'Blocked drain overflowing onto the main road'],
+    category: 'Drainage', title: 'Blocked storm drain', point: ward(12, 0.001, 0.003), address: 'Rajpur Road, Civil Lines',
+    texts: ['Storm drain blocked on Rajpur Road, water stagnant', 'Blocked drain overflowing onto the main road'],
     first: now - 48 * 60000, spreadHours: 0.6, count: 3,
   });
   await cluster({
-    category: 'Streetlight', title: 'Four streetlights out in a row', point: ward(8, -0.002, -0.002), address: 'Canal Road',
-    texts: ['Four streetlights not working in a row on Canal Road', 'Canal Rd completely dark at night, lights off'],
+    category: 'Streetlight', title: 'Four streetlights out in a row', point: ward(8, -0.002, -0.002), address: 'Timarpur Road',
+    texts: ['Four streetlights not working in a row on Timarpur Road', 'Timarpur Rd completely dark at night, lights off'],
     first: now - 6 * HOUR, spreadHours: 4, count: 5,
   });
   await cluster({
-    category: 'Waste', title: 'Overflowing community bin', point: { lat: binPoint.lat + 0.0006, lng: binPoint.lng - 0.0005 }, address: 'Sector 9 park, back entrance',
-    texts: ['Community bin overflowing at the back of Sector 9 park'], first: now - 2 * HOUR, spreadHours: 0.5, count: 2,
+    category: 'Waste', title: 'Overflowing community bin', point: { lat: binPoint.lat + 0.0006, lng: binPoint.lng - 0.0005 }, address: 'Roshanara Bagh, back entrance',
+    texts: ['Community bin overflowing at the back of Roshanara Bagh'], first: now - 2 * HOUR, spreadHours: 0.5, count: 2,
   });
   await cluster({
-    category: 'Footpath', title: 'Broken footpath slab', point: ward(10, 0.001, 0.001), address: 'Tilak Marg',
-    texts: ['Footpath slab broken on Tilak Marg, people tripping'], first: now - 7 * HOUR, spreadHours: 0, count: 1,
+    category: 'Footpath', title: 'Broken footpath slab', point: ward(10, 0.001, 0.001), address: 'Ashok Vihar Main Rd',
+    texts: ['Footpath slab broken on Ashok Vihar Main Rd, people tripping'], first: now - 7 * HOUR, spreadHours: 0, count: 1,
   });
   await cluster({
-    category: 'Public property', title: 'Fallen signboard on divider', point: { lat: ringRoad.lat + 0.003, lng: ringRoad.lng - 0.004 }, address: 'Ring Road divider',
-    texts: ['Signboard has fallen on the Ring Road divider'], first: now - 1 * HOUR, spreadHours: 0, count: 1,
+    category: 'Public property', title: 'Fallen signboard on divider', point: { lat: bungalowRd.lat + 0.003, lng: bungalowRd.lng - 0.004 }, address: 'Bungalow Road divider',
+    texts: ['Signboard has fallen on the Bungalow Road divider'], first: now - 1 * HOUR, spreadHours: 0, count: 1,
   });
   await cluster({
-    category: 'Water leakage', title: 'Leaking public tap', point: ward(11, -0.004, -0.003), address: 'Old Bazaar',
-    texts: ['Public tap leaking in Old Bazaar, water wasted all day'], first: now - 9 * HOUR, spreadHours: 2, count: 2,
+    category: 'Water leakage', title: 'Leaking public tap', point: ward(11, -0.004, -0.003), address: 'Kamla Nagar Market',
+    texts: ['Public tap leaking in Kamla Nagar Market, water wasted all day'], first: now - 9 * HOUR, spreadHours: 2, count: 2,
   });
 
-  // 5. Reopened by citizens: Market St patch failed.
+  // 5. Reopened by citizens: Malka Ganj Rd patch failed.
   const market = { lat: home.lat - 0.0035, lng: home.lng - 0.003 };
   const patch = await cluster({
-    category: 'Pothole', title: 'Pothole patch failed again', point: market, address: 'Market St, Sector 11',
-    texts: ['Pothole on Market Street', 'Market St pothole again after rain'], first: now - 9 * DAY, spreadHours: 20, count: 4,
+    category: 'Pothole', title: 'Pothole patch failed again', point: market, address: 'Malka Ganj Rd, Kamla Nagar',
+    texts: ['Pothole on the market road', 'Market road pothole again after rain'], first: now - 9 * DAY, spreadHours: 20, count: 4,
   });
   const r1 = await triageAndAssign(patch, 'Crew R-4', now - 8 * DAY, 'P2');
   await updateProgress(patch, r1, { stage: 'RESOLVED', note: 'Cold patch applied.', latitude: market.lat, longitude: market.lng }, iso(now - 6 * DAY));
@@ -477,10 +487,10 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
   await recordResponse(patch, patchReqs[0].citizen_id, { fixed: false, feedback: 'The patch broke up again after one day of rain.' }, iso(now - 5.5 * DAY));
   await recordResponse(patch, patchReqs[1].citizen_id, { fixed: false, feedback: 'Same hole is back.' }, iso(now - 5.2 * DAY));
 
-  // Open manhole, Canal Rd: reopened, near Aarav for the Nearby map.
+  // Open manhole, Chhatra Marg: reopened, near Aarav for the Nearby map.
   const manhole = await cluster({
-    category: 'Drainage', title: 'Open manhole, Canal Rd', point: { lat: home.lat + 0.0018, lng: home.lng + 0.0016 }, address: 'Canal Road, Sector 14',
-    texts: ['Open manhole on Canal Road, no cover', 'Manhole cover missing, dangerous at night'], first: now - 6 * DAY, spreadHours: 10, count: 2,
+    category: 'Drainage', title: 'Open manhole, Chhatra Marg', point: { lat: home.lat + 0.0018, lng: home.lng + 0.0016 }, address: 'Chhatra Marg, Kamla Nagar',
+    texts: ['Open manhole on Chhatra Marg, no cover', 'Manhole cover missing, dangerous at night'], first: now - 6 * DAY, spreadHours: 10, count: 2,
   });
   const d3 = await triageAndAssign(manhole, 'Crew D-3', now - 5.5 * DAY, 'P1');
   await updateProgress(manhole, d3, { stage: 'RESOLVED', note: 'Temporary cover placed.' }, iso(now - 4 * DAY));
@@ -489,9 +499,9 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
 
   // 6. Officer verification queue: no reporter answered in 72 h.
   const queue = [
-    ['Drainage', 'Clogged drain, Canal Road', 'Canal Rd', ward(8, 0.003, 0.001), 'Crew D-3', 2, 'Drain cleared, silt removed and carted away.'],
-    ['Water leakage', 'Leaking public tap', 'Old Bazaar', ward(11, 0.002, 0.004), 'Crew W-2', 1, 'Tap spindle and washer replaced.'],
-    ['Public property', 'Broken bench at bus stop', 'Tilak Marg', ward(10, -0.002, 0.002), 'Crew P-2', 1, 'Bench slats replaced and bolted.'],
+    ['Drainage', 'Clogged drain, Timarpur Road', 'Timarpur Rd', ward(8, 0.003, 0.001), 'Crew D-3', 2, 'Drain cleared, silt removed and carted away.'],
+    ['Water leakage', 'Leaking public tap', 'Kamla Nagar Market', ward(11, 0.002, 0.004), 'Crew W-2', 1, 'Tap spindle and washer replaced.'],
+    ['Public property', 'Broken bench at bus stop', 'Ashok Vihar Main Rd', ward(10, -0.002, 0.002), 'Crew P-2', 1, 'Bench slats replaced and bolted.'],
   ];
   for (const [category, title, address, point, crewName, count, note] of queue) {
     const id = await cluster({ category, title, point, address, texts: [`${title}`], first: now - 8 * DAY, spreadHours: 6, count });
@@ -503,21 +513,21 @@ async function seedScenarios({ db, now, iso, catId, crewIds, deptId, officer, aa
 
   // 7. More live work for Crew R-4 and the Roads board.
   const cave = await cluster({
-    category: 'Road markings', title: 'Faded speed-breaker marking', point: { lat: lakeview.lat - 0.001, lng: lakeview.lng + 0.001 }, address: 'Lakeview Lane',
-    texts: ['Speed breaker on Lakeview Lane has no paint, bikes hit it at speed'], first: now - 6 * DAY, spreadHours: 0, count: 1,
+    category: 'Road markings', title: 'Faded speed-breaker marking', point: { lat: shaktiLane.lat - 0.001, lng: shaktiLane.lng + 0.001 }, address: 'Shakti Nagar Lane',
+    texts: ['Speed breaker on Shakti Nagar Lane has no paint, bikes hit it at speed'], first: now - 6 * DAY, spreadHours: 0, count: 1,
   });
   await triageAndAssign(cave, 'Crew R-4', now - 5 * DAY);
   const sunk = await cluster({
-    category: 'Damaged road', title: 'Sunken manhole cover', point: ward(7, 0.001, -0.003), address: 'Ring Road, Ward 7',
-    texts: ['Manhole cover sunk below the road level on Ring Road'], first: now - 1.2 * DAY, spreadHours: 0, count: 1,
+    category: 'Damaged road', title: 'Sunken manhole cover', point: ward(7, 0.001, -0.003), address: 'Kingsway Camp Rd, GTB Nagar',
+    texts: ['Manhole cover sunk below the road level on Kingsway Camp Road'], first: now - 1.2 * DAY, spreadHours: 0, count: 1,
   });
   await triageAndAssign(sunk, 'Crew R-1', now - 1 * DAY);
 
   // 8. Match review queue: reports the engine was unsure about.
   const titled = async (t) => await db.prepare('SELECT * FROM incident WHERE title = ? ORDER BY incident_id DESC').get(t);
   const reviews = [
-    ['Deep pothole, Ring Road', 'Pothole', 'Road broken outside HP petrol pump, my scooter tyre burst', 125, 14],
-    ['Burst water main, flooding lane', 'Water leakage', 'Water on road in Gandhi Nagar since morning', 120, 22],
+    ['Deep pothole, Bungalow Road', 'Pothole', 'Road broken outside HP petrol pump, my scooter tyre burst', 125, 14],
+    ['Burst water main, flooding lane', 'Water leakage', 'Water on road in Kingsway Camp since morning', 120, 22],
     ['Four streetlights out in a row', 'Streetlight', 'Streetlight not working near the bridge', 210, 60],
     ['Overflowing community bin', 'Waste', 'Garbage pile near park wall', 95, 120],
     ['Pothole patch failed again', 'Pothole', 'Road broken near temple, big hole with stones lying around', 160, 180],
@@ -565,25 +575,46 @@ async function copyInto(from, t) {
 // which takes seconds instead of thousands of network round trips.
 // onlyIfEmpty: skip if another server instance already seeded it (the
 // check runs under a lock, so two instances never seed at once).
-export async function seedDatabase({ onlyIfEmpty = false, ...options } = {}) {
+export async function seedDatabase({ onlyIfEmpty = false, onlyIfOutdated = false, ...options } = {}) {
   const target = await ready();
   const isEmpty = async (c) => (await c.query('SELECT COUNT(*) n FROM "user"')).rows[0].n === 0;
+  const version = async (c) => Number((await c.query(`SELECT value FROM app_meta WHERE key = 'seed_version'`)).rows[0]?.value || 1);
+  const needed = async (c) => {
+    if (!onlyIfEmpty && !onlyIfOutdated) return true;
+    if (await isEmpty(c)) return true;
+    return onlyIfOutdated && (await version(c)) < SEED_VERSION;
+  };
+  const stamp = (c) => c.query(
+    `INSERT INTO app_meta (key, value) VALUES ('seed_version', $1) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, [String(SEED_VERSION)]
+  );
   if (target.kind === 'pglite') {
-    if (onlyIfEmpty && !(await isEmpty(target))) return null;
-    return seed(options);
+    if (!(await needed(target))) return null;
+    const counts = await seed(options);
+    await stamp(target);
+    return counts;
   }
   return target.transaction(async (t) => {
     await t.query('SELECT pg_advisory_xact_lock(2026092601)');
-    if (onlyIfEmpty && !(await isEmpty(t))) return null;
+    if (!(await needed(t))) return null;
     const memory = await connect(':memory:');
     try {
       const counts = await withConnection(memory, () => seed(options));
       await copyInto(memory, t);
+      await stamp(t);
       return counts;
     } finally {
       await memory.close();
     }
   });
+}
+
+// Used on server start: loads the demo data into an empty database, or
+// reloads it when the stored demo data is older than SEED_VERSION.
+export async function ensureDemoData() {
+  const outdated = process.env.DEMO_RESEED !== '0';
+  const counts = await seedDatabase({ onlyIfEmpty: true, onlyIfOutdated: outdated });
+  if (counts) console.log(`Loaded demo data v${SEED_VERSION}: ${counts.incidents} incidents, ${counts.reports} reports.`);
+  return counts;
 }
 
 // CLI: node src/seed.js

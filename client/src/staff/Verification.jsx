@@ -1,9 +1,10 @@
 // Officer verification queue (design p.30, FR-63, BR-11).
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../lib/hooks.js';
+import { useApi, useNarrow } from '../lib/hooks.js';
 import { timeAgo, timeLeft } from '../lib/format.js';
-import { Icon, ErrorNote, Spinner } from '../components/ui.jsx';
+import { ErrorNote, Spinner, Tabs } from '../components/ui.jsx';
+import { AllClearArt } from '../components/Illustrations.jsx';
 import { ProofCard, VerificationBox } from './IncidentDetail.jsx';
 
 export default function Verification() {
@@ -13,6 +14,7 @@ export default function Verification() {
   const rows = tab === 'needs' ? data?.needs_officer || [] : data?.in_window || [];
   const selected = rows.find((r) => r.incident_id === selectedId) || rows[0];
   const { data: detail, reload: reloadDetail } = useApi(selected ? `/staff/incidents/${selected.incident_id}` : null);
+  const narrow = useNarrow();
   if (!data) return error ? <ErrorNote error={error} onRetry={reload} /> : <Spinner />;
 
   const after = async () => { setSelectedId(null); await reload(); await reloadDetail(); };
@@ -25,28 +27,27 @@ export default function Verification() {
           <span className="muted">Every linked reporter gets 72 h to respond. The majority of responses decides; a tie reopens. No responses → you check the proof.</span>
         </div>
       </div>
-      <div className="row wrap" style={{ gap: 8 }}>
-        <button type="button" className={`chip ${tab === 'needs' ? 'on' : ''}`} onClick={() => setTab('needs')}>No response — needs you<span className="count">{data.needs_officer.length}</span></button>
-        <button type="button" className={`chip ${tab === 'window' ? 'on' : ''}`} onClick={() => setTab('window')}>In 72 h window<span className="count">{data.in_window.length}</span></button>
-        <span className="chip" style={{ cursor: 'default' }}>Decided in the last day<span className="count">{data.decided_today}</span></span>
+      <div className="row wrap between" style={{ gap: 10 }}>
+        <Tabs value={tab} onChange={setTab} tabs={[['needs', 'Needs you', data.needs_officer.length], ['window', 'In 72 h window', data.in_window.length]]} />
+        <span className="small muted">Decided in the last day: <b>{data.decided_today}</b></span>
       </div>
       {rows.length === 0 ? (
         <div className="panel empty">
-          <div className="done-icon"><Icon name="check" size={30} /></div>
+          <AllClearArt />
           <h3>{tab === 'needs' ? 'Nothing needs your check' : 'No incidents in a verification window'}</h3>
         </div>
       ) : (
-        <div className="split">
+        <div className={narrow ? 'stack' : 'split'}>
           <div className="panel">
-            <table className="table">
+            <table className="table stackable">
               <thead><tr><th>ID</th><th>Incident</th><th>Resolved by</th><th>Asked</th></tr></thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.incident_id} className={`clickable ${selected?.incident_id === r.incident_id ? 'selected' : ''}`} onClick={() => setSelectedId(r.incident_id)}>
-                    <td className="mono">{r.code}</td>
-                    <td><div className="title">{r.title}</div><div className="sub">{[r.address, /ward/i.test(r.address || '') ? null : `Ward ${r.ward}`].filter(Boolean).join(', ')}</div></td>
-                    <td><div>{r.crew_name}</div><div className="sub">{r.department_name}</div></td>
-                    <td>
+                  <tr key={r.incident_id} className={`clickable ${!narrow && selected?.incident_id === r.incident_id ? 'selected' : ''}`} tabIndex={0} onClick={() => setSelectedId(r.incident_id)}>
+                    <td className="mono cell-id">{r.code}</td>
+                    <td className="cell-main"><div className="title">{r.title}</div><div className="sub">{[r.address, /ward/i.test(r.address || '') ? null : `Ward ${r.ward}`].filter(Boolean).join(', ')}</div></td>
+                    <td data-label="Resolved by"><div>{r.crew_name}</div><div className="sub">{r.department_name}</div></td>
+                    <td data-label="Asked">
                       <div>{r.verification.total} reporter{r.verification.total === 1 ? '' : 's'}</div>
                       <div className="sub">{tab === 'needs' ? `resolved ${timeAgo(r.resolved_at)} ago` : `${r.verification.responded} answered · ${timeLeft(r.verification.expires_at)}`}</div>
                     </td>
@@ -56,7 +57,7 @@ export default function Verification() {
             </table>
           </div>
           {detail && selected && detail.incident_id === selected.incident_id && (
-            <aside className="stack sticky">
+            <aside className="stack sticky" id="verify-detail">
               <div className="card stack tight">
                 <span className="mono small muted">{detail.code} · {tab === 'needs' ? `window closed` : timeLeft(detail.verification.expires_at)}</span>
                 <h2>{detail.title}</h2>

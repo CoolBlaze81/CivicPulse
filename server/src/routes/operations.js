@@ -1,7 +1,7 @@
 // Department, field worker, analytics, admin and notification endpoints.
 import { Router } from 'express';
 import { getDb, nowIso, tx } from '../db.js';
-import { hashPassword, publicUser, requireAuth, requireRole, ROLES } from '../auth.js';
+import { audit, checkPassword, hashPassword, publicUser, requireAuth, requireRole, ROLES } from '../auth.js';
 import { decorateIncident, HttpError, incidentSummary, incidentSummarySql } from '../services/incidents.js';
 import { crewsForDepartment, suggestCrew } from '../services/assignment.js';
 import { doneToday, jobsForCrew, updateProgress } from '../services/fieldwork.js';
@@ -214,7 +214,7 @@ r.get('/admin/users', ...admin, h(async (req, res) => {
          WHERE u.role != 'CITIZEN' AND u.deleted = 0 ORDER BY u.role, u.name`
       )
       .all())
-      .map(publicUser)
+      .map((u) => ({ ...publicUser(u), locked: !!u.locked_until && Date.parse(u.locked_until) > Date.now() }))
       .concat([{ role: 'CITIZEN', count: citizens }])
   );
 }));
@@ -224,7 +224,9 @@ r.post('/admin/users', ...admin, h(async (req, res) => {
   const { name, staff_id, role, password, department_id, crew_id, wards } = req.body;
   if (!ROLES.includes(role) || role === 'CITIZEN') throw new HttpError(422, 'Choose a staff role.');
   if (!String(name || '').trim() || !String(staff_id || '').trim()) throw new HttpError(422, 'Name and staff ID are required.');
-  if (String(password || '').length < 8) throw new HttpError(422, 'Passwords need at least 8 characters.');
+  if (!/^[A-Za-z0-9-]{3,20}$/.test(String(staff_id || '').trim())) throw new HttpError(422, 'Staff IDs use 3 to 20 letters, digits or dashes, e.g. OFF-103.');
+  if (String(name).trim().length > 60) throw new HttpError(422, 'Names need 2 to 60 characters.');
+  checkPassword(password);
   if (role === 'DEPT_HEAD' && !department_id) throw new HttpError(422, 'Department heads need a department.');
   if (role === 'FIELD_WORKER' && !crew_id) throw new HttpError(422, 'Field workers need a crew.');
   try {
@@ -234,6 +236,7 @@ r.post('/admin/users', ...admin, h(async (req, res) => {
         role === 'DEPT_HEAD' ? Number(department_id) : null, role === 'FIELD_WORKER' ? Number(crew_id) : null,
         role === 'OFFICER' ? String(wards || '') : null, nowIso());
     if (role === 'DEPT_HEAD') await db.prepare('UPDATE department SET head_user_id = ? WHERE department_id = ?').run(info.lastInsertRowid, Number(department_id));
+    await audit(req.user.user_id, 'STAFF_CREATED', `${String(staff_id).trim().toUpperCase()} (${role})`, req.ip);
   } catch (e) {
     if (isUniqueViolation(e)) throw new HttpError(409, 'That staff ID is already taken.');
     throw e;
@@ -241,9 +244,61 @@ r.post('/admin/users', ...admin, h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
+async function staffTarget(req) {
+  const u = await getDb().prepare(`SELECT * FROM "user" WHERE user_id = ? AND role != 'CITIZEN' AND deleted = 0`).get(intParam(req.params.id));
+  if (!u) throw new HttpError(404, "We can't find that staff account.", 'NOT_FOUND');
+  return u;
+}
+
 r.post('/admin/users/:id/unlock', ...admin, h(async (req, res) => {
-  await getDb().prepare('UPDATE "user" SET failed_logins = 0, locked_until = NULL WHERE user_id = ?').run(intParam(req.params.id));
+  const u = await staffTarget(req);
+  await getDb().prepare('UPDATE "user" SET failed_logins = 0, locked_until = NULL WHERE user_id = ?').run(u.user_id);
+  await audit(req.user.user_id, 'STAFF_UNLOCKED', u.staff_id, req.ip);
   res.json({ ok: true });
+}));
+
+// Switch a staff account off (or back on). Switching off signs it out everywhere.
+r.post('/admin/users/:id/disable', ...admin, h(async (req, res) => {
+  const u = await staffTarget(req);
+  const disabled = req.body.disabled !== false;
+  if (u.user_id === req.user.user_id && disabled) throw new HttpError(409, "You can't switch off your own account.");
+  if (disabled && u.role === 'ADMIN') {
+    const { n } = await getDb().prepare(`SELECT COUNT(*) n FROM "user" WHERE role = 'ADMIN' AND disabled = 0 AND deleted = 0`).get();
+    if (n <= 1) throw new HttpError(409, 'At least one admin account has to stay active.');
+  }
+  await getDb().prepare('UPDATE "user" SET disabled = ?, token_version = token_version + ? WHERE user_id = ?').run(disabled ? 1 : 0, disabled ? 1 : 0, u.user_id);
+  await audit(req.user.user_id, disabled ? 'STAFF_DISABLED' : 'STAFF_ENABLED', u.staff_id, req.ip);
+  res.json({ ok: true });
+}));
+
+// Set a new password for a staff member (e.g. they forgot theirs).
+r.post('/admin/users/:id/password', ...admin, h(async (req, res) => {
+  const u = await staffTarget(req);
+  const pw = checkPassword(req.body.password);
+  await getDb().prepare('UPDATE "user" SET password_hash = ?, failed_logins = 0, locked_until = NULL, token_version = token_version + 1 WHERE user_id = ?').run(hashPassword(pw), u.user_id);
+  await audit(req.user.user_id, 'STAFF_PASSWORD_RESET', u.staff_id, req.ip);
+  res.json({ ok: true });
+}));
+
+const AUDIT_LABEL = {
+  SIGN_IN: 'Signed in', SIGN_IN_FAILED: 'Wrong password', SIGN_IN_BLOCKED: 'Blocked sign-in', ACCOUNT_LOCKED: 'Account locked',
+  PASSWORD_CHANGED: 'Changed password', SIGNED_OUT_EVERYWHERE: 'Signed out everywhere', ACCOUNT_DELETED: 'Deleted account',
+  STAFF_CREATED: 'Created staff account', STAFF_UNLOCKED: 'Unlocked account', STAFF_DISABLED: 'Switched off account',
+  STAFF_ENABLED: 'Switched on account', STAFF_PASSWORD_RESET: 'Reset a password',
+};
+
+// Activity log for admins: staff sign-ins and account changes.
+r.get('/admin/audit', ...admin, h(async (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+  const filter = req.query.kind === 'security' ? `AND a.action IN ('SIGN_IN_FAILED','SIGN_IN_BLOCKED','ACCOUNT_LOCKED')` : '';
+  const rows = await getDb()
+    .prepare(
+      `SELECT a.audit_id, a.action, a.detail, a.ip, a.created_at, u.name, u.staff_id, u.role FROM audit_log a
+       LEFT JOIN "user" u ON u.user_id = a.user_id WHERE (u.role IS NULL OR u.role != 'CITIZEN') ${filter}
+       ORDER BY a.created_at DESC, a.audit_id DESC LIMIT ?`
+    )
+    .all(limit);
+  res.json(rows.map((x) => ({ ...x, label: AUDIT_LABEL[x.action] || x.action })));
 }));
 
 r.get('/admin/departments', ...admin, h(async (req, res) => {
