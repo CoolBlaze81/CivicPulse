@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useApi, useToast } from '../lib/hooks.js';
 import { ROLE_LABEL } from '../lib/format.js';
 import { Icon, Spinner, Tabs, Toast } from '../components/ui.jsx';
+import { SearchArt } from '../components/Illustrations.jsx';
 
 export default function Users() {
   const { data, reload } = useApi('/admin/users');
@@ -115,7 +116,7 @@ export default function Users() {
                 </td>
               </tr>
             ))}
-            {shown.length === 0 && <tr><td colSpan={6} className="center muted" style={{ padding: 24 }}>No staff match that search.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={6} className="center muted" style={{ padding: 24 }}><SearchArt className="art-sm" />No staff match that search.</td></tr>}
           </tbody>
         </table>
       </div>

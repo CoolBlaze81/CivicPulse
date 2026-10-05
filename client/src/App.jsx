@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
 import { ROLE_HOME } from './lib/format.js';
 import { Spinner } from './components/ui.jsx';
-import { NotFound, Forbidden, SessionExpired } from './components/ErrorPages.jsx';
+import { NotFound, Forbidden, SessionExpired, CrashGuard } from './components/ErrorPages.jsx';
 
 import CitizenLogin from './citizen/Login.jsx';
 import CitizenLayout from './citizen/Layout.jsx';
@@ -73,7 +73,9 @@ const staff = (roles, el) => (
 );
 
 export default function App() {
+  const { pathname } = useLocation();
   return (
+    <CrashGuard resetKey={pathname}>
     <Routes>
       <Route path="/" element={<Root />} />
       <Route path="/login" element={<CitizenLogin />} />
@@ -123,5 +125,6 @@ export default function App() {
       <Route path="/session-expired" element={<SessionExpired />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </CrashGuard>
   );
 }

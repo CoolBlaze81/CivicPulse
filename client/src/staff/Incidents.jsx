@@ -5,7 +5,7 @@ import { useAuth } from '../auth.jsx';
 import { useApi, useNarrow } from '../lib/hooks.js';
 import { timeAgo } from '../lib/format.js';
 import { Icon, Priority, Spinner, StatusPill, ErrorNote, Tabs } from '../components/ui.jsx';
-import { AllClearArt } from '../components/Illustrations.jsx';
+import { AllClearArt, SearchArt } from '../components/Illustrations.jsx';
 import MapView from '../components/MapView.jsx';
 
 const TAB_SETS = {
@@ -72,7 +72,7 @@ export default function Incidents({ mode = 'officer' }) {
         <div className="panel">
           {loading && !data ? <Spinner /> : list.length === 0 ? (
             <div className="empty">
-              <AllClearArt />
+              {debounced ? <SearchArt /> : <AllClearArt />}
               <h3>{tab === 'triage' ? 'Triage queue is clear' : 'Nothing here'}</h3>
               <p className="muted">{tab === 'triage' ? 'Every new incident has a category, priority and crew. New ones appear here as they come in.' : debounced ? 'No incidents match that search.' : 'No incidents in this list right now.'}</p>
               {mode === 'officer' && <Link to="/officer/match-review" className="link-btn">Check reports that need match review</Link>}

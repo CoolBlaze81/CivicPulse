@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ROLE_HOME } from '../lib/format.js';
 import { Brand } from '../components/ui.jsx';
+import { CrewArt } from '../components/Illustrations.jsx';
 
 const DEMO = [
   ['Officer', 'Incident triage', 'OFF-101'],
@@ -40,9 +41,10 @@ export default function StaffLogin() {
   return (
     <div className="login-split">
       <div className="login-left">
+        <CrewArt className="login-art" />
         <Brand light />
-        <h1>One incident.<br />Every report behind it.</h1>
-        <p style={{ opacity: 0.8, fontSize: 17, maxWidth: 440 }}>Staff workspace for the MetroServe Municipal Operations Authority, North Delhi: officers, departments, field crews and administrators.</p>
+        <h1>One incident.{' '}<br />Every report behind it.</h1>
+        <p className="login-lede" style={{ opacity: 0.8, fontSize: 17, maxWidth: 440 }}>Staff workspace for the MetroServe Municipal Operations Authority, North Delhi: officers, departments, field crews and administrators.</p>
         <div className="role-map">
           <span className="eyebrow" style={{ color: 'rgba(255,255,255,0.6)' }}>Where each role lands · demo ID</span>
           {DEMO.map(([role, lands, id]) => (
@@ -57,8 +59,8 @@ export default function StaffLogin() {
       <div className="login-right">
         <form className="stack loose" onSubmit={submit}>
           <div className="stack tight">
-            <h2 style={{ fontSize: 30 }}>Staff sign in</h2>
-            <p className="muted">Your role is set by MSMO. You’ll land in your own workspace.</p>
+            <h2 className="login-title">Staff sign in</h2>
+            <p className="muted login-sub">Your role is set by MSMO. You’ll land in your own workspace.</p>
           </div>
           {error && <div className="banner error" role="alert">{error}</div>}
           <label className="field">Staff ID
@@ -68,8 +70,14 @@ export default function StaffLogin() {
             <span className="row between">Password <span className="hint small">Forgot? Ask your MSMO administrator.</span></span>
             <input className={`input ${error ? 'bad' : ''}`} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
           </label>
-          <button className="btn primary lg block" disabled={busy || !staffId || !password}>Sign in</button>
-          <p className="small muted">Demo password for every staff account: <span className="mono">civicpulse</span>. Tap a demo ID to fill it in. <Link to="/login">Citizen sign-in</Link></p>
+          <button className="btn primary lg block" disabled={busy || !staffId || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
+          <div className="demo-ids" aria-label="Demo staff IDs">
+            <span className="tiny muted">Demo:</span>
+            {DEMO.map(([role, , id]) => (
+              <button type="button" key={id} className="chip mono" title={role} onClick={() => { setStaffId(id); setPassword('civicpulse'); }}>{id}</button>
+            ))}
+          </div>
+          <p className="small muted login-foot">Demo password for every staff account: <span className="mono">civicpulse</span>. Tap a demo ID to fill it in. <Link to="/login">Citizen sign-in</Link></p>
         </form>
       </div>
     </div>

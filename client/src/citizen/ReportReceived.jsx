@@ -1,7 +1,8 @@
 // Report received (design p.5).
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
-import { Icon, Spinner } from '../components/ui.jsx';
+import { Spinner } from '../components/ui.jsx';
+import { SentArt } from '../components/Illustrations.jsx';
 
 export default function ReportReceived() {
   const { id } = useParams();
@@ -16,7 +17,7 @@ export default function ReportReceived() {
 
   return (
     <div className="done-screen">
-      <div className="done-icon"><Icon name="check" size={36} stroke={2.4} /></div>
+      <SentArt className="done-art" />
       <div className="stack tight">
         <h1>Report received</h1>
         <span className="mono muted">{report.code}</span>

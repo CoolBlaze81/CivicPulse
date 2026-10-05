@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useApi } from '../lib/hooks.js';
 import { ROLE_LABEL, when } from '../lib/format.js';
 import { ErrorNote, Icon, Spinner, Tabs } from '../components/ui.jsx';
+import { ShieldArt } from '../components/Illustrations.jsx';
 
 const TONE = {
   SIGN_IN_FAILED: 'amber', SIGN_IN_BLOCKED: 'red', ACCOUNT_LOCKED: 'red', STAFF_DISABLED: 'red',
@@ -27,7 +28,7 @@ export default function Activity() {
       <Tabs value={kind} onChange={setKind} tabs={[['all', 'Everything'], ['security', 'Security warnings']]} className="fit" />
       <ErrorNote error={error} onRetry={reload} />
       {!data ? <Spinner /> : data.length === 0 ? (
-        <div className="panel empty"><h3>Nothing logged yet</h3><p className="muted">Sign-ins and account changes appear here.</p></div>
+        <div className="panel empty"><ShieldArt /><h3>{kind === 'security' ? 'No security warnings' : 'Nothing logged yet'}</h3><p className="muted">{kind === 'security' ? 'No failed sign-ins or locked accounts. Warnings show up here if anything looks off.' : 'Sign-ins and account changes appear here.'}</p></div>
       ) : (
         <div className="panel">
           {data.map((a) => (

@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ROLE_HOME } from '../lib/format.js';
 import { Brand, Icon } from '../components/ui.jsx';
+import { CityArt } from '../components/Illustrations.jsx';
 import { PhoneShell } from './Layout.jsx';
 
 const STEPS = ['Snap a photo, drop a pin', 'We join you with neighbours who saw it too', 'You confirm the fix before it’s closed'];
@@ -16,11 +17,12 @@ function LoginFrame({ children, intro }) {
     <PhoneShell wide>
       <div className="cit-login">
         <section className={`cit-login-hero ${intro ? '' : 'desk-only-hero'}`}>
+          <CityArt className="login-art" />
           <Brand />
           <h1>Report it once.<br />Watch it get fixed.</h1>
           <ol className="stack">
             {STEPS.map((t, i) => (
-              <li key={t} className="row"><span className="avatar">{i + 1}</span><span className="bold">{t}</span></li>
+              <li key={t} className="row" style={{ '--i': i }}><span className="avatar">{i + 1}</span><span className="bold">{t}</span></li>
             ))}
           </ol>
         </section>
@@ -153,19 +155,19 @@ export default function CitizenLogin() {
       <div className="stack loose">
         <div className="stack tight">
           <h2>Sign in with your mobile</h2>
-          <p className="muted small">Report problems on your street in North Delhi and follow them until they're fixed.</p>
+          <p className="muted small login-sub">Report problems on your street in North Delhi and follow them until they're fixed.</p>
         </div>
         <form className="stack" onSubmit={send}>
           <label className="field">
             Mobile number
             <div className="row">
               <span className="input" style={{ width: 70, display: 'grid', placeItems: 'center' }}>+91</span>
-              <input className="input" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Your 10-digit mobile number" />
+              <input className="input" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit mobile number" />
             </div>
-            <span className="hint">We’ll send a 6-digit code. New here? This creates your account.</span>
+            <span className="hint login-hint">We’ll send a 6-digit code. New here? This creates your account.</span>
           </label>
           {error && <p className="error-text" role="alert">{error}</p>}
-          <button className="btn primary lg block" disabled={busy || phone.replace(/\D/g, '').length < 10}>Send code</button>
+          <button className="btn primary lg block" disabled={busy || phone.replace(/\D/g, '').length < 10}>{busy ? 'Sending…' : 'Send code'}</button>
         </form>
         <div className="or-divider"><span>or</span></div>
         <Link to="/staff/login" className="staff-entry">

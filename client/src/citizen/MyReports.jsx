@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useApi } from '../lib/hooks.js';
 import { ErrorNote, Icon, Spinner, Tabs } from '../components/ui.jsx';
-import { ReportsArt } from '../components/Illustrations.jsx';
+import { AllClearArt, ReportsArt, SearchArt } from '../components/Illustrations.jsx';
 import { ReportRow } from './Home.jsx';
 import { OutboxBanner, useOutbox } from '../components/Outbox.jsx';
 
@@ -93,7 +93,8 @@ export default function MyReports() {
                 <Link to="/report/new" className="btn primary"><Icon name="camera" size={18} /> Report an issue</Link>
               </div>
             ) : list.length === 0 ? (
-              <div className="card stack center" style={{ padding: 24 }}>
+              <div className="card stack center empty-card">
+                {term ? <SearchArt /> : <AllClearArt />}
                 <p className="muted">{term ? 'No reports match that search.' : filter === 'check' ? 'Nothing needs your check right now.' : 'Nothing in this list.'}</p>
                 <button type="button" className="link-btn" onClick={() => { setFilter('all'); setQ(''); }}>Show all reports</button>
               </div>
