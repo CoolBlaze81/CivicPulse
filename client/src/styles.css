@@ -987,3 +987,153 @@ table.table { width: 100%; border-collapse: collapse; }
 .cit-login-hero::before, .login-left::before, .hero-card::before,
 .cit-login-hero::after, .login-left::after, .hero-card::after, .staff-topbar::before { mix-blend-mode: screen; }
 @media (min-width: 801px) { .login-left .login-art { width: 110px; top: 28px; right: 32px; opacity: 0.5; } }
+
+/* ===== v4: more gradients, more flow ===== */
+@property --flow-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes flow-pan { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes flow-spin { to { --flow-angle: 360deg; } }
+@keyframes bg-drift { 0% { background-position: 0% 0%, 100% 100%, 50% 0%; } 50% { background-position: 60% 40%, 30% 70%, 90% 60%; } 100% { background-position: 0% 0%, 100% 100%, 50% 0%; } }
+
+/* Scroll reveal (see lib/reveal.js). */
+.reveal { opacity: 0; transform: translateY(28px) scale(0.985); animation: none !important; transition: opacity 0.7s var(--ease-out), transform 0.8s var(--ease-out) !important; }
+.reveal.in-view { opacity: 1; transform: none; }
+
+/* Headings in flowing brand colour. */
+.flow-text, .phone-main > h1, .phone-main > .row h1, .phone-main .stack.tight > h1, .staff-head h1, .done-screen h1, .error-page h1, .cit-login-form h2, .login-title {
+  background: linear-gradient(100deg, var(--navy) 0%, var(--violet) 30%, var(--pulse) 50%, var(--violet) 70%, var(--navy) 100%);
+  background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: flow-pan 9s ease-in-out infinite;
+}
+/* Hero headlines on navy: white light with a peach and lavender shimmer. */
+.cit-login-hero h1, .login-left h1, .hero-card h2 {
+  background: linear-gradient(100deg, #fff 0%, #fff 30%, #ffc9ae 45%, #d9cdff 58%, #fff 72%, #fff 100%);
+  background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: flow-pan 8s ease-in-out infinite;
+}
+/* Big numbers on staff dashboards. */
+.kpi b, .queue-n, .mini-kpis b {
+  background: linear-gradient(100deg, var(--navy), var(--violet) 45%, var(--navy) 80%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: flow-pan 10s ease-in-out infinite;
+}
+
+/* Main calls to action carry a slowly flowing fill. */
+.hero-card .btn, .btn.primary.lg {
+  background-image: linear-gradient(110deg, var(--pulse), #ff8a4c 30%, #e2457a 55%, var(--pulse) 80%);
+  background-size: 250% 100%; animation: flow-pan 6s ease-in-out infinite; border: 0;
+}
+.btn.primary.lg { background-image: linear-gradient(110deg, var(--navy), #3b2f9a 35%, #5b3cc4 55%, var(--navy) 85%); }
+.btn.primary.lg:disabled { animation: none; background-image: none; }
+@media (hover: hover) {
+  .btn.primary:not(.lg):hover:not(:disabled) {
+    background-image: linear-gradient(110deg, var(--navy), #3b2f9a 50%, var(--navy)); background-size: 200% 100%;
+    animation: flow-pan 3s ease-in-out infinite;
+  }
+}
+/* A sheen sweeps across the main buttons now and then. */
+.hero-card .btn, .btn.primary.lg:not(:disabled) { position: relative; overflow: hidden; isolation: isolate; }
+.hero-card .btn::after, .btn.primary.lg:not(:disabled)::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.28) 50%, transparent 65%);
+  transform: translateX(-120%); animation: sheen 5.5s ease-in-out infinite;
+}
+@keyframes sheen { 0%, 60% { transform: translateX(-120%); } 85%, 100% { transform: translateX(120%); } }
+
+/* Rotating gradient borders on the cards that ask for action. */
+.flow-border, .staff-entry, .report-cta:first-child {
+  border: 1.5px solid transparent !important;
+  background:
+    linear-gradient(var(--flow-bg, var(--card)), var(--flow-bg, var(--card))) padding-box,
+    conic-gradient(from var(--flow-angle), var(--pulse), var(--violet), #3d6bdc, var(--navy), var(--pulse)) border-box !important;
+  animation: flow-spin 6s linear infinite;
+}
+.flow-border.warn { --flow-bg: var(--pulse-50); }
+.flow-border, .staff-entry, .report-cta:first-child { animation-name: flow-spin; }
+.reveal.flow-border { animation: none !important; }
+
+/* Avatar ring. */
+.avatar-glow { position: relative; display: inline-grid; border-radius: 99px; padding: 3px; flex: none;
+  background: conic-gradient(from var(--flow-angle), var(--pulse), var(--violet), #3d6bdc, var(--pulse)); animation: flow-spin 5s linear infinite; }
+.avatar-glow .avatar { border: 2.5px solid var(--paper); }
+
+/* Navy sidebar drifts too (background only, so it stays sticky). */
+.sidebar {
+  background-color: var(--navy);
+  background-image:
+    radial-gradient(60% 40% at 20% 10%, rgba(91, 60, 196, 0.55), transparent 70%),
+    radial-gradient(60% 40% at 80% 90%, rgba(240, 100, 46, 0.32), transparent 70%),
+    radial-gradient(50% 30% at 50% 50%, rgba(61, 107, 220, 0.3), transparent 70%);
+  background-size: 200% 200%, 200% 200%, 200% 200%; background-repeat: no-repeat;
+  animation: bg-drift 22s ease-in-out infinite;
+}
+.drawer {
+  background-color: var(--navy);
+  background-image:
+    radial-gradient(70% 40% at 10% 0%, rgba(91, 60, 196, 0.6), transparent 70%),
+    radial-gradient(70% 40% at 90% 100%, rgba(240, 100, 46, 0.35), transparent 70%),
+    radial-gradient(50% 30% at 50% 50%, rgba(61, 107, 220, 0.3), transparent 70%);
+  background-size: 200% 200%, 200% 200%, 200% 200%; background-repeat: no-repeat;
+  animation: bg-drift 18s ease-in-out infinite;
+}
+.sidebar nav a.active, .drawer nav a.active { background: linear-gradient(100deg, rgba(255,255,255,0.18), rgba(255,255,255,0.06)); }
+
+/* Soft colour behind every workspace page, staff included. */
+.staff-main {
+  background-image:
+    radial-gradient(40% 30% at 15% 0%, rgba(91, 60, 196, 0.09), transparent 70%),
+    radial-gradient(40% 30% at 90% 10%, rgba(240, 100, 46, 0.08), transparent 70%),
+    radial-gradient(40% 30% at 60% 100%, rgba(61, 107, 220, 0.06), transparent 70%);
+  background-size: 160% 160%, 160% 160%, 160% 160%; background-repeat: no-repeat;
+  animation: bg-drift 26s ease-in-out infinite;
+}
+.phone-body::before {
+  background:
+    radial-gradient(40% 50% at 20% 40%, rgba(91, 60, 196, 0.2), transparent 70%),
+    radial-gradient(36% 46% at 80% 50%, rgba(240, 100, 46, 0.17), transparent 70%),
+    radial-gradient(30% 40% at 50% 80%, rgba(61, 107, 220, 0.12), transparent 70%);
+}
+.phone-body::after {
+  content: ''; position: fixed; z-index: -1; pointer-events: none; left: -20%; right: -20%; bottom: -220px; height: 460px;
+  background:
+    radial-gradient(40% 50% at 70% 50%, rgba(91, 60, 196, 0.12), transparent 70%),
+    radial-gradient(36% 46% at 20% 40%, rgba(240, 100, 46, 0.1), transparent 70%);
+  filter: blur(30px); animation: aurora-a 22s ease-in-out infinite;
+}
+.phone-body .phone { background: transparent; }
+
+/* Tabs and navigation: the active marker is a gradient. */
+.tabs button.on .count { background: linear-gradient(110deg, var(--navy), var(--violet)); }
+.tabbar a { position: relative; }
+.tabbar a.active::after {
+  content: ''; position: absolute; left: 50%; bottom: 2px; width: 22px; height: 3px; border-radius: 3px; transform: translateX(-50%);
+  background: linear-gradient(90deg, var(--pulse), var(--violet)); background-size: 200% 100%; animation: flow-pan 3s ease-in-out infinite;
+}
+@media (min-width: 900px) {
+  .tabbar a.active { background: linear-gradient(110deg, var(--navy-50), var(--violet-50), var(--pulse-50)); background-size: 200% 100%; animation: flow-pan 8s ease-in-out infinite; }
+  .tabbar a.active::after { display: none; }
+}
+.tabbar .btn.primary, .tabbar a.btn { background-image: linear-gradient(110deg, var(--pulse), #ff8a4c 40%, #e2457a 60%, var(--pulse)); background-size: 250% 100%; animation: flow-pan 6s ease-in-out infinite; }
+
+/* Things that move along a path. */
+.timeline li::after {
+  background: linear-gradient(180deg, var(--pulse), var(--violet), var(--line), var(--violet), var(--pulse));
+  background-size: 100% 300%; animation: flow-pan-y 4s linear infinite;
+}
+@keyframes flow-pan-y { from { background-position: 50% 0%; } to { background-position: 50% 100%; } }
+.spinner {
+  border: 0; background: conic-gradient(from var(--flow-angle), transparent 0 20%, var(--violet), var(--pulse));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+  animation: flow-spin 0.9s linear infinite;
+}
+.pin-dot { animation: pin-ping 2s ease-out infinite; }
+@keyframes pin-ping { 0% { box-shadow: 0 0 0 0 rgba(240, 100, 46, 0.45); } 100% { box-shadow: 0 0 0 18px rgba(240, 100, 46, 0); } }
+.pin-count.red, .pin-count.hot { animation: pin-ping-red 2.2s ease-out infinite; }
+@keyframes pin-ping-red { 0% { box-shadow: 0 0 0 0 rgba(192, 38, 45, 0.4); } 100% { box-shadow: 0 0 0 14px rgba(192, 38, 45, 0); } }
+.progress-fill, .meter:not(.full) i.on { background-image: linear-gradient(90deg, var(--navy), var(--violet)); }
+
+/* Hero art drifts as you scroll, where the browser supports it. */
+@supports (animation-timeline: scroll()) {
+  .hero-city { animation: parallax linear both; animation-timeline: scroll(); animation-range: 0 500px; }
+  @keyframes parallax { to { transform: translateY(40px) scale(1.06); } }
+}

@@ -103,10 +103,10 @@ export default function CitizenHome() {
         </Link>
       </div>
       <div className="row" style={{ gap: 12 }}>
-        <Link to="/profile" aria-label="Your profile"><Avatar user={user} size={46} /></Link>
+        <Link to="/profile" aria-label="Your profile" className="avatar-glow"><Avatar user={user} size={46} /></Link>
         <div className="stack tight grow" style={{ gap: 0 }}>
           <span className="muted small">{greeting()}</span>
-          <h2>{firstName ? `Hi, ${firstName}` : 'Welcome'}</h2>
+          <h2 className="flow-text">{firstName ? `Hi, ${firstName}` : 'Welcome'}</h2>
         </div>
       </div>
 
@@ -126,7 +126,7 @@ export default function CitizenHome() {
           <ErrorNote error={error} onRetry={reload} hasData={!!data} />
 
           {needsCheck.map((r) => (
-            <div key={r.incident_id} className="card warn stack">
+            <div key={r.incident_id} className="card warn stack flow-border">
               <div className="row between"><span className="eyebrow" style={{ color: 'var(--pulse)' }}>Needs your check</span><span className="mono small">{r.incident_code}</span></div>
               <p className="bold">The crew says “{r.incident_title}” is fixed. Is it?</p>
               <Link to={`/incident/${r.incident_id}/verify`} className="btn primary">Review proof</Link>

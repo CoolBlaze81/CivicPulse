@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './auth.jsx';
 import App from './App.jsx';
 import './styles.css';
+import { startReveal } from './lib/reveal.js';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -14,6 +15,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+startReveal();
 
 // Installed app: open offline from the cached shell (production builds only).
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
